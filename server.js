@@ -108,6 +108,10 @@ app.use((err, req, res, next) => {
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
   });
 });
+app.use((req, res, next) => {
+  console.log(`[REQUEST RECEIVED] Method: ${req.method}, Path: ${req.originalUrl}, Time: ${new Date().toISOString()}`);
+  next();
+});
 
 const startServer = async () => {
   try {
