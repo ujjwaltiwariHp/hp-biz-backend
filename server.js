@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-// const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
@@ -37,7 +36,9 @@ const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:3001",
   "https://hp-biz-frontend-zykn-ujjwals-projects-44afb61b.vercel.app",
-  "https://hp-biz-backend-2.onrender.com"
+  "https://hp-biz-backend-2.onrender.com",
+  "https://hp-biz-backend-production-46ce.up.railway.app",
+  "https://hp-biz-frontend-production-zzzzzz.up.railway.app"
 ];
 
 app.use(cors({
