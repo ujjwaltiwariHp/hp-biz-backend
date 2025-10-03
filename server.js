@@ -34,11 +34,12 @@ app.use(helmet());
 
 const allowedOrigins = [
   "http://localhost:3000",
-  "http://localhost:3001",
-  "https://hp-biz-frontend-zykn-ujjwals-projects-44afb61b.vercel.app",
-  "https://hp-biz-backend-2.onrender.com",
-  "https://hp-biz-backend-production-46ce.up.railway.app",
-  "https://hp-biz-frontend-production-zzzzzz.up.railway.app"
+  // "http://localhost:3001",
+  // "https://hp-biz-frontend-zykn-ujjwals-projects-44afb61b.vercel.app",
+  // "https://hp-biz-backend-2.onrender.com",
+  // "https://hp-biz-backend-production-46ce.up.railway.app",
+  // "https://hp-biz-frontend-production-zzzzzz.up.railway.app",
+  "https://hp-biz-frontend-zykn.vercel.app"
 ];
 
 app.use(cors({
