@@ -1,7 +1,7 @@
 const Staff = require("../models/staffModel");
 const { successResponse } = require("../utils/successResponse");
 const { errorResponse } = require("../utils/errorResponse");
-const { sendStaffWelcomeEmail } = require("../services/emailService");
+const { sendStaffWelcomeEmail } = require('../services/resendEmailService');
 
 const getAllStaff = async (req, res) => {
   try {
