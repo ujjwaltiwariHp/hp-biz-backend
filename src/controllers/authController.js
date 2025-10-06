@@ -16,7 +16,7 @@ const {
 const { staffLogin: staffLoginModel } = require('../models/staffModel');
 const Staff = require("../models/staffModel");
 
-const { sendSignupOTPEmail, sendResetOTPEmail } = require('../services/resendEmailService');
+const { sendSignupOTPEmail, sendResetOTPEmail } = require('../services/emailService');
 const { generateOTP } = require('../utils/generateOTP');
 const { generateToken } = require('../utils/jwtHelper');
 const { errorResponse } = require('../utils/errorResponse');

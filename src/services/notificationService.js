@@ -1,5 +1,5 @@
 const Notifications = require("../models/notificationsModel");
-const { sendNotificationEmail, sendAdminNotificationEmail } = require("../services/resendEmailService");
+const { sendNotificationEmail, sendAdminNotificationEmail } = require("./emailService");
 const pool = require("../config/database");
 
 const createLeadStatusChangeNotification = async (leadId, oldStatus, newStatus, changedBy, companyId) => {
