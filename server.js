@@ -34,28 +34,31 @@ app.use(helmet());
 
 const allowedOrigins = [
   "http://localhost:3000",
-  // "http://localhost:3001",
-  // "https://hp-biz-frontend-zykn-ujjwals-projects-44afb61b.vercel.app",
-  // "https://hp-biz-backend-2.onrender.com",
-  // "https://hp-biz-backend-production-46ce.up.railway.app",
-  // "https://hp-biz-frontend-production-zzzzzz.up.railway.app",
-  "https://hp-biz-frontend-zykn.vercel.app"
+  "https://hp-biz-frontend.vercel.app",
+  "https://hp-biz-backend-production-46ce.up.railway.app"
 ];
 
-app.use(cors({
+const corsOptions = {
   origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
+    if (!origin) {
+      return callback(null, true);
+    }
 
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      callback(new Error("Not allowed by CORS"));
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
     }
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-  allowedHeaders: ["Content-Type", "Authorization"]
-}));
+  allowedHeaders: ["Content-Type", "Authorization"],
+  exposedHeaders: ["Set-Cookie"],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+};
+
+app.use(cors(corsOptions));
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -102,16 +105,12 @@ app.use((req, res) => {
 
 app.use(logError);
 app.use((err, req, res, next) => {
-  console.error('Error:', err.stack);
+  console.error('Error:', err.message);
   res.status(err.status || 500).json({
     success: false,
     message: err.message || 'Something went wrong!',
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
   });
-});
-app.use((req, res, next) => {
-  console.log(`[REQUEST RECEIVED] Method: ${req.method}, Path: ${req.originalUrl}, Time: ${new Date().toISOString()}`);
-  next();
 });
 
 const startServer = async () => {
