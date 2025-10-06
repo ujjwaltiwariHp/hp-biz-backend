@@ -12,7 +12,7 @@ const { successResponse } = require('../../utils/successResponse');
 const { errorResponse } = require('../../utils/errorResponse');
 const { calculateTaxAndTotal } = require('../../utils/calculationHelper');
 const { generateInvoicePdf } = require('../../utils/pdfGenerator');
-const { sendInvoiceEmail } = require('../../services/emailService');
+const { sendInvoiceEmail } = require('../../services/notificationService');
 
 const generateInvoice = async (req, res) => {
   try {
