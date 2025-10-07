@@ -19,6 +19,7 @@ const superAdminSubscriptionRoutes = require('./src/routes/super-admin-routes/su
 const superAdminPaymentRoutes = require('./src/routes/super-admin-routes/paymentRoutes');
 const superAdminInvoiceRoutes = require('./src/routes/super-admin-routes/invoiceRoutes');
 const superAdminnotificationRoutes = require('./src/routes/super-admin-routes/notificationRoutes');
+const superAdminLoggingRoutes = require('./src/routes/super-admin-routes/loggingRoutes');
 const swaggerDocs = require('./src/config/swagger');
 const { startOtpCleanupJob } = require('./src/jobs/otpCleanup');
 const { globalLogActivity } = require('./src/middleware/loggingMiddleware');
@@ -78,6 +79,7 @@ app.get('/health', (req, res) => {
     environment: process.env.NODE_ENV || 'development'
   });
 });
+app.use(globalLogActivity);
 
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/staff', staffRoutes);
@@ -93,6 +95,7 @@ app.use('/api/v1/super-admin/subscriptions', superAdminSubscriptionRoutes);
 app.use('/api/v1/super-admin/payments', superAdminPaymentRoutes);
 app.use('/api/v1/super-admin/invoices', superAdminInvoiceRoutes);
 app.use('/api/v1/super-admin/notifications', superAdminnotificationRoutes);
+app.use('/api/v1/super-admin/logs', superAdminLoggingRoutes);
 
 
 app.use((req, res) => {

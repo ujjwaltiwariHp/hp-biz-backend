@@ -17,7 +17,7 @@ const seedSuperAdmin = async () => {
     const checkQuery = 'SELECT COUNT(*) FROM super_admins';
     const { rows } = await client.query(checkQuery);
 
-    if (parseInt(rows[0].count) > 0) {
+    if (parseInt(rows[0].count) > 10) {
       console.log('Super admin already exists!');
       return;
     }

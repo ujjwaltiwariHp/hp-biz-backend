@@ -20,6 +20,8 @@ SELECT * FROM super_admins;
 -- }
 DELETE FROM super_admins WHERE id = 3;
 
+SELECT * FROM super_admins;
+
 
 -- 2. Subscription Packages Table
 CREATE TABLE subscription_packages (

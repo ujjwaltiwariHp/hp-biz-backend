@@ -3,7 +3,8 @@ const {
   getSystemLogs,
   getActivitySummary,
   cleanOldLogs,
-  getTotalLogsCount
+  getTotalLogsCount,
+  getTotalSystemLogsCount // ADDED: For correct pagination in getSystemEventLogs
 } = require('../models/loggingModel');
 const { successResponse } = require('../utils/successResponse');
 const { errorResponse } = require('../utils/errorResponse');
@@ -30,6 +31,9 @@ const getUserLogs = async (req, res) => {
       limit: parseInt(limit)
     };
 
+    const parsedLimit = parseInt(limit);
+    const parsedPage = parseInt(page);
+
     const [logs, totalCount] = await Promise.all([
       getUserActivityLogs(filters),
       getTotalLogsCount({
@@ -41,13 +45,15 @@ const getUserLogs = async (req, res) => {
       })
     ]);
 
+    const totalPages = Math.ceil(totalCount / parsedLimit);
+
     return successResponse(res, "User activity logs retrieved successfully", {
       logs,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: parsedPage,
+        limit: parsedLimit,
         total_records: totalCount,
-        total_pages: Math.ceil(totalCount / parseInt(limit))
+        total_pages: totalPages
       }
     });
   } catch (error) {
@@ -57,8 +63,10 @@ const getUserLogs = async (req, res) => {
 
 const getSystemEventLogs = async (req, res) => {
   try {
+    // CRITICAL FIX: Ensure company_id is only retrieved from req.company for non-super-admin routes
+    const company_id = req.company.id;
+
     const {
-      company_id,
       staff_id,
       log_level,
       log_category,
@@ -69,7 +77,7 @@ const getSystemEventLogs = async (req, res) => {
     } = req.query;
 
     const filters = {
-      company_id: company_id ? parseInt(company_id) : (req.company ? req.company.id : null),
+      company_id, // Filtered implicitly by authenticated company
       staff_id: staff_id ? parseInt(staff_id) : null,
       log_level,
       log_category,
@@ -79,14 +87,24 @@ const getSystemEventLogs = async (req, res) => {
       limit: parseInt(limit)
     };
 
-    const logs = await getSystemLogs(filters);
+    const parsedLimit = parseInt(limit);
+    const parsedPage = parseInt(page);
+
+    // FIX: Use getTotalSystemLogsCount for accurate total count
+    const [logs, totalCount] = await Promise.all([
+        getSystemLogs(filters),
+        getTotalSystemLogsCount(filters)
+    ]);
+
+    const totalPages = Math.ceil(totalCount / parsedLimit);
 
     return successResponse(res, "System logs retrieved successfully", {
       logs,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total_records: logs.length
+        page: parsedPage,
+        limit: parsedLimit,
+        total_records: totalCount,
+        total_pages: totalPages
       }
     });
   } catch (error) {
@@ -147,24 +165,26 @@ const exportLogs = async (req, res) => {
     let logs;
     let filename;
 
+    const baseFilters = {
+        company_id,
+        start_date,
+        end_date,
+        limit: 10000
+    };
+
     if (type === 'activity') {
-      logs = await getUserActivityLogs({
-        company_id,
+      const filters = {
+        ...baseFilters,
         staff_id: staff_id ? parseInt(staff_id) : null,
-        action_type,
-        start_date,
-        end_date,
-        limit: 10000
-      });
+        action_type
+      };
+      logs = await getUserActivityLogs(filters);
       filename = `activity-logs-${Date.now()}.csv`;
-    } else {
-      logs = await getSystemLogs({
-        company_id,
-        start_date,
-        end_date,
-        limit: 10000
-      });
+    } else if (type === 'system') {
+      logs = await getSystemLogs(baseFilters);
       filename = `system-logs-${Date.now()}.csv`;
+    } else {
+        return errorResponse(res, 400, "Invalid export type. Must be 'activity' or 'system'.");
     }
 
     const csv = convertLogsToCSV(logs, type);
@@ -278,7 +298,7 @@ const convertLogsToCSV = (logs, type) => {
 
   const csvContent = [
     headers.join(','),
-    ...rows.map(row => row.map(field => `"${field}"`).join(','))
+    ...rows.map(row => row.map(field => `"${field ? String(field).replace(/"/g, '""') : ''}"`).join(','))
   ].join('\n');
 
   return csvContent;

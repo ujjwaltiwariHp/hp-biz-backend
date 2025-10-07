@@ -1,5 +1,16 @@
 const pool = require('../config/database');
 
+const normalizeIPForDisplay = (ip) => {
+  if (!ip) return 'N/A';
+  if (ip.startsWith('::ffff:')) {
+    return ip.substring(7);
+  }
+  if (ip === '::1') {
+    return '127.0.0.1';
+  }
+  return ip;
+};
+
 const logUserActivity = async (activityData) => {
   const {
     staff_id,
@@ -15,14 +26,19 @@ const logUserActivity = async (activityData) => {
     const query = `
       INSERT INTO user_activity_logs (
         staff_id, company_id, action_type, resource_type,
-        resource_id, action_details, ip_address
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        resource_id, action_details, ip_address, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7::inet, CURRENT_TIMESTAMP)
       RETURNING id, created_at
     `;
 
     const values = [
-      staff_id, company_id, action_type, resource_type,
-      resource_id, action_details, ip_address
+      staff_id || null,
+      company_id || null,
+      action_type,
+      resource_type || 'unknown',
+      resource_id || null,
+      action_details || '',
+      ip_address || '0.0.0.0'
     ];
 
     const result = await pool.query(query, values);
@@ -45,16 +61,23 @@ const logSystemEvent = async (logData) => {
   try {
     const query = `
       INSERT INTO system_logs (
-        company_id, staff_id, log_level, log_category, message
-      ) VALUES ($1, $2, $3, $4, $5)
-      RETURNING id
+        company_id, staff_id, log_level, log_category, message, created_at
+      ) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+      RETURNING id, created_at
     `;
 
-    const values = [company_id, staff_id, log_level, log_category, message];
+    const values = [
+      company_id || null,
+      staff_id || null,
+      log_level || 'INFO',
+      log_category || 'general',
+      message
+    ];
 
     const result = await pool.query(query, values);
     return result.rows[0];
   } catch (error) {
+    console.error('Error logging system event:', error);
     return null;
   }
 };
@@ -64,6 +87,7 @@ const getUserActivityLogs = async (filters = {}) => {
     staff_id,
     company_id,
     action_type,
+    resource_type,
     start_date,
     end_date,
     page = 1,
@@ -79,25 +103,46 @@ const getUserActivityLogs = async (filters = {}) => {
       ual.resource_type,
       ual.resource_id,
       ual.action_details,
-      ual.ip_address,
+      HOST(ual.ip_address) as ip_address,
       ual.created_at,
-      COALESCE(s.first_name, '') as first_name,
-      COALESCE(s.last_name, '') as last_name,
-      COALESCE(s.email, c.admin_email) as email,
-      c.company_name
+
+      CASE
+        WHEN ual.staff_id IS NULL AND ual.company_id IS NOT NULL THEN COALESCE(c.admin_name, 'Company Admin')
+        WHEN ual.company_id IS NULL THEN COALESCE(sa.name, 'Super Admin')
+        ELSE COALESCE(s.first_name, '')
+      END as first_name,
+
+      CASE
+        WHEN ual.staff_id IS NULL OR ual.company_id IS NULL THEN ''
+        ELSE COALESCE(s.last_name, '')
+      END as last_name,
+
+      COALESCE(s.email, c.admin_email, sa.email, 'System') as email,
+      COALESCE(c.company_name, 'System/SuperAdmin') as company_name,
+
+      CASE
+        WHEN ual.company_id IS NULL THEN 'Super Admin'
+        WHEN ual.staff_id IS NULL THEN 'Admin'
+        ELSE 'Staff'
+      END as user_type
     FROM user_activity_logs ual
-    LEFT JOIN staff s ON ual.staff_id = s.id
+    LEFT JOIN staff s ON ual.staff_id = s.id AND ual.company_id IS NOT NULL
     LEFT JOIN companies c ON ual.company_id = c.id
+    LEFT JOIN super_admins sa ON ual.company_id IS NULL AND ual.staff_id IS NULL
     WHERE 1=1
   `;
 
   const values = [];
   let paramCount = 1;
 
-  if (company_id) {
-    query += ` AND ual.company_id = $${paramCount}`;
-    values.push(company_id);
-    paramCount++;
+  if (company_id !== undefined) {
+    if (company_id === null) {
+      query += ` AND ual.company_id IS NULL`;
+    } else {
+      query += ` AND ual.company_id = $${paramCount}`;
+      values.push(company_id);
+      paramCount++;
+    }
   }
 
   if (staff_id) {
@@ -109,6 +154,12 @@ const getUserActivityLogs = async (filters = {}) => {
   if (action_type) {
     query += ` AND ual.action_type = $${paramCount}`;
     values.push(action_type);
+    paramCount++;
+  }
+
+  if (resource_type) {
+    query += ` AND ual.resource_type = $${paramCount}`;
+    values.push(resource_type);
     paramCount++;
   }
 
@@ -130,8 +181,12 @@ const getUserActivityLogs = async (filters = {}) => {
 
   try {
     const result = await pool.query(query, values);
-    return result.rows;
+    return result.rows.map(log => ({
+        ...log,
+        ip_address: normalizeIPForDisplay(log.ip_address)
+    }));
   } catch (error) {
+    console.error('Error fetching user activity logs:', error);
     throw new Error('Error fetching user activity logs: ' + error.message);
   }
 };
@@ -157,12 +212,11 @@ const getSystemLogs = async (filters = {}) => {
       sl.log_category,
       sl.message,
       sl.created_at,
-      COALESCE(s.first_name, '') as first_name,
-      COALESCE(s.last_name, '') as last_name,
-      COALESCE(s.email, c.admin_email) as email,
-      c.company_name
+      COALESCE(c.admin_name, 'System') as first_name,
+      '' as last_name,
+      COALESCE(c.admin_email, 'System') as email,
+      COALESCE(c.company_name, 'System') as company_name
     FROM system_logs sl
-    LEFT JOIN staff s ON sl.staff_id = s.id
     LEFT JOIN companies c ON sl.company_id = c.id
     WHERE 1=1
   `;
@@ -184,7 +238,7 @@ const getSystemLogs = async (filters = {}) => {
 
   if (log_level) {
     query += ` AND sl.log_level = $${paramCount}`;
-    values.push(log_level);
+    values.push(log_level.toUpperCase());
     paramCount++;
   }
 
@@ -212,9 +266,83 @@ const getSystemLogs = async (filters = {}) => {
 
   try {
     const result = await pool.query(query, values);
-    return result.rows;
+
+    const logsWithIP = result.rows.map(log => {
+      const ipMatch = log.message.match(/IP:\s*([^\s-]+)/);
+      const rawIp = ipMatch ? ipMatch[1] : null;
+      return {
+        ...log,
+        ip_address: normalizeIPForDisplay(rawIp) // FIX: Use the normalization function here
+      };
+    });
+    return logsWithIP;
   } catch (error) {
+    console.error('Error fetching system logs:', error);
     throw new Error('Error fetching system logs: ' + error.message);
+  }
+};
+
+const getTotalSystemLogsCount = async (filters = {}) => {
+  const {
+    company_id,
+    staff_id,
+    log_level,
+    log_category,
+    start_date,
+    end_date
+  } = filters;
+
+  let query = `
+    SELECT COUNT(*) as total
+    FROM system_logs sl
+    WHERE 1=1
+  `;
+
+  const values = [];
+  let paramCount = 1;
+
+  if (company_id) {
+    query += ` AND sl.company_id = $${paramCount}`;
+    values.push(company_id);
+    paramCount++;
+  }
+
+  if (staff_id) {
+    query += ` AND sl.staff_id = $${paramCount}`;
+    values.push(staff_id);
+    paramCount++;
+  }
+
+  if (log_level) {
+    query += ` AND sl.log_level = $${paramCount}`;
+    values.push(log_level.toUpperCase());
+    paramCount++;
+  }
+
+  if (log_category) {
+    query += ` AND sl.log_category = $${paramCount}`;
+    values.push(log_category);
+    paramCount++;
+  }
+
+  if (start_date) {
+    query += ` AND sl.created_at >= $${paramCount}`;
+    values.push(start_date);
+    paramCount++;
+  }
+
+  if (end_date) {
+    query += ` AND sl.created_at <= $${paramCount}`;
+    values.push(end_date);
+    paramCount++;
+  }
+
+  try {
+    const result = await pool.query(query, values);
+    return parseInt(result.rows[0].total);
+  } catch (error) {
+    console.error('Error getting total system logs count:', error);
+    throw new Error('Error getting total system logs count: ' + error.message);
   }
 };
 
@@ -239,6 +367,7 @@ const cleanOldLogs = async (daysToKeep = 90) => {
       system_logs_deleted: systemResult.rowCount
     };
   } catch (error) {
+    console.error('Error cleaning old logs:', error);
     throw new Error('Error cleaning old logs: ' + error.message);
   }
 };
@@ -262,6 +391,7 @@ const getActivitySummary = async (company_id, days = 7) => {
     const result = await pool.query(query, [company_id, startDate]);
     return result.rows;
   } catch (error) {
+    console.error('Error getting activity summary:', error);
     throw new Error('Error getting activity summary: ' + error.message);
   }
 };
@@ -271,6 +401,7 @@ const getTotalLogsCount = async (filters = {}) => {
     staff_id,
     company_id,
     action_type,
+    resource_type,
     start_date,
     end_date
   } = filters;
@@ -284,10 +415,14 @@ const getTotalLogsCount = async (filters = {}) => {
   const values = [];
   let paramCount = 1;
 
-  if (company_id) {
-    query += ` AND ual.company_id = $${paramCount}`;
-    values.push(company_id);
-    paramCount++;
+  if (company_id !== undefined) {
+    if (company_id === null) {
+      query += ` AND ual.company_id IS NULL`;
+    } else {
+      query += ` AND ual.company_id = $${paramCount}`;
+      values.push(company_id);
+      paramCount++;
+    }
   }
 
   if (staff_id) {
@@ -299,6 +434,12 @@ const getTotalLogsCount = async (filters = {}) => {
   if (action_type) {
     query += ` AND ual.action_type = $${paramCount}`;
     values.push(action_type);
+    paramCount++;
+  }
+
+  if (resource_type) {
+    query += ` AND ual.resource_type = $${paramCount}`;
+    values.push(resource_type);
     paramCount++;
   }
 
@@ -318,7 +459,42 @@ const getTotalLogsCount = async (filters = {}) => {
     const result = await pool.query(query, values);
     return parseInt(result.rows[0].total);
   } catch (error) {
+    console.error('Error getting total logs count:', error);
     throw new Error('Error getting total logs count: ' + error.message);
+  }
+};
+
+const getActionTypes = async (company_id) => {
+  try {
+    const query = `
+      SELECT DISTINCT action_type
+      FROM user_activity_logs
+      WHERE company_id = $1
+      ORDER BY action_type
+    `;
+
+    const result = await pool.query(query, [company_id]);
+    return result.rows.map(row => row.action_type);
+  } catch (error) {
+    console.error('Error getting action types:', error);
+    return [];
+  }
+};
+
+const getResourceTypes = async (company_id) => {
+  try {
+    const query = `
+      SELECT DISTINCT resource_type
+      FROM user_activity_logs
+      WHERE company_id = $1
+      ORDER BY resource_type
+    `;
+
+    const result = await pool.query(query, [company_id]);
+    return result.rows.map(row => row.resource_type);
+  } catch (error) {
+    console.error('Error getting resource types:', error);
+    return [];
   }
 };
 
@@ -329,5 +505,8 @@ module.exports = {
   getSystemLogs,
   cleanOldLogs,
   getActivitySummary,
-  getTotalLogsCount
+  getTotalLogsCount,
+  getTotalSystemLogsCount,
+  getActionTypes,
+  getResourceTypes
 };
