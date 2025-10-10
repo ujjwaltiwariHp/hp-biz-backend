@@ -12,8 +12,9 @@ const createLead = async (req, res) => {
       return errorResponse(res, 400, "First name, last name, email/phone, and lead source are required");
     }
 
-    const leadExists = await Lead.isLeadExists(email, phone, company_id);
-    if (leadExists) return errorResponse(res, 409, "A lead with this email or phone already exists");
+    // Duplicate check removed to allow lead creation regardless of existing email/phone
+    // const leadExists = await Lead.isLeadExists(email, phone, company_id);
+    // if (leadExists) return errorResponse(res, 409, "A lead with this email or phone already exists");
 
     let created_by, assigned_by, created_by_type, assigned_by_type;
 
@@ -172,15 +173,17 @@ const bulkUploadLeads = async (req, res) => {
       return errorResponse(res, 400, "File contains invalid rows.", { errors: processingErrors });
     }
 
+    // Set duplicateCount to 0 permanently since we are allowing duplicates
     let successCount = 0, duplicateCount = 0, failedCount = 0, finalErrors = [];
     const createdLeadIds = [];
 
     for (const lead of leadsToCreate) {
       try {
-        const isDuplicate = await Lead.isLeadExists(lead.email, lead.phone, companyId);
-        if (isDuplicate) {
-          duplicateCount++;
-        } else {
+        // REMOVED DUPLICATE CHECK: Allowing all leads to be created regardless of email/phone existence
+        // const isDuplicate = await Lead.isLeadExists(lead.email, lead.phone, companyId);
+        // if (isDuplicate) {
+        //   duplicateCount++;
+        // } else {
           const newLead = await Lead.createLead({
             ...lead,
             company_id: companyId,
@@ -197,7 +200,7 @@ const bulkUploadLeads = async (req, res) => {
           if (created_by && created_by_type === 'staff') {
             await Lead.trackLeadCreation(newLead.id, created_by, companyId);
           }
-        }
+        // }
       } catch (dbError) {
         failedCount++;
         finalErrors.push(`Failed to create lead for ${lead.email || lead.phone}: ${dbError.message}`);
@@ -227,7 +230,7 @@ const bulkUploadLeads = async (req, res) => {
     return successResponse(res, "Bulk upload complete.", {
       totalRows: leadsToCreate.length,
       imported: successCount,
-      skipped: duplicateCount,
+      skipped: 0, // Hardcoded to 0 since we skip the check
       failed: failedCount,
       errors: finalErrors
     });
