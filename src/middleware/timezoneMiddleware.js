@@ -22,9 +22,7 @@ async function getCompanyTimezone(companyId) {
       [companyId]
     );
 
-    const timezone = result.rows[0]?.timezone ||
-                    result.rows[0]?.company_timezone ||
-                    'UTC';
+    const timezone = result.rows[0]?.timezone || result.rows[0]?.company_timezone || 'UTC';
     timezoneCache.set(companyId, {
       timezone,
       timestamp: Date.now()
@@ -53,14 +51,12 @@ async function attachTimezone(req, res, next) {
     if (req.company) {
       timezone = await getCompanyTimezone(req.company.id);
       timezoneSource = 'company';
-
       const deviceTimezone = req.headers['x-device-timezone'];
       if (deviceTimezone && TimezoneHelper.isValidTimezone(deviceTimezone)) {
         req.deviceTimezone = deviceTimezone;
       }
     } else if (req.staff) {
       const staffPreference = req.staff.timezone_preference || 'company';
-
       if (staffPreference === 'custom' && req.staff.timezone) {
         timezone = req.staff.timezone;
         timezoneSource = 'staff_custom';
@@ -78,7 +74,6 @@ async function attachTimezone(req, res, next) {
         timezoneSource = 'company';
       }
     } else {
-
       const deviceTz = req.headers['x-device-timezone'];
       if (deviceTz && TimezoneHelper.isValidTimezone(deviceTz)) {
         timezone = deviceTz;
@@ -87,7 +82,6 @@ async function attachTimezone(req, res, next) {
     }
 
     if (!TimezoneHelper.isValidTimezone(timezone)) {
-      console.warn(`Invalid timezone "${timezone}", falling back to UTC`);
       timezone = 'UTC';
       timezoneSource = 'fallback';
     }
@@ -95,7 +89,6 @@ async function attachTimezone(req, res, next) {
     req.timezone = timezone;
     req.timezoneSource = timezoneSource;
     req.timezoneHelper = TimezoneHelper;
-    req.timezoneInfo = TimezoneHelper.getTimezoneInfo(timezone);
 
     next();
   } catch (error) {
@@ -111,26 +104,9 @@ function transformResponseTimestamps(req, res, next) {
   const originalJson = res.json.bind(res);
 
   res.json = function(data) {
-    const shouldConvert = req.timezone &&
-                         req.timezone !== 'UTC' &&
-                         req.headers['x-convert-timestamps'] !== 'false';
-
-    if (shouldConvert && data && typeof data === 'object') {
-      const convertedData = TimezoneHelper.convertTimestampsInObject(
-        data,
-        req.timezone
-      );
-
-      if (!data.success === false) {
-        convertedData._timezone = {
-          timezone: req.timezone,
-          source: req.timezoneSource,
-          abbreviation: req.timezoneInfo.abbreviation,
-          offset: req.timezoneInfo.offset
-        };
-      }
-
-      return originalJson(convertedData);
+    if (data && typeof data === 'object') {
+      if (!data.meta) data.meta = {};
+      data.meta.timezone = req.timezone;
     }
 
     return originalJson(data);
@@ -143,5 +119,6 @@ module.exports = {
   attachTimezone,
   transformResponseTimestamps,
   getCompanyTimezone,
-  clearTimezoneCache
+  clearTimezoneCache,
+  attachTimezoneForSuperAdmin: attachTimezone
 };
