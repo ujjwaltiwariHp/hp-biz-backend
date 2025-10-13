@@ -45,21 +45,26 @@ const bulkUploadMiddleware = (req, res, next) => {
         fs.createReadStream(filePath)
           .pipe(csv())
           .on('data', (row) => {
-            const email = row['Email']?.trim().toLowerCase();
-            const phone = row['Phone']?.trim();
+            // Accept both capitalized and lowercase headers
+            const firstName = row['First Name']?.trim() || row['first_name']?.trim();
+            const lastName = row['Last Name']?.trim() || row['last_name']?.trim();
+            const email = (row['Email']?.trim() || row['email']?.trim())?.toLowerCase();
+            const phone = row['Phone']?.trim() || row['phone']?.trim();
+            const companyName = row['Company Name']?.trim() || row['company_name']?.trim() || null;
+            const jobTitle = row['Job Title']?.trim() || row['job_title']?.trim() || null;
 
-            if (!row['First Name']?.trim() || !row['Last Name']?.trim() || (!email && !phone)) {
+            if (!firstName || !lastName || (!email && !phone)) {
               processingErrors.push(`Row missing required data (First Name, Last Name, Email, or Phone).`);
               return;
             }
 
             leadsToCreate.push({
-              first_name: row['First Name'].trim(),
-              last_name: row['Last Name'].trim(),
+              first_name: firstName,
+              last_name: lastName,
               email: email,
               phone: phone,
-              company_name: row['Company Name']?.trim() || null,
-              job_title: row['Job Title']?.trim() || null
+              company_name: companyName,
+              job_title: jobTitle
             });
           })
           .on('end', async () => {
