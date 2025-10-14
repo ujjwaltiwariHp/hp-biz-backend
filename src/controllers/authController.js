@@ -328,7 +328,6 @@ const updateProfile = async (req, res) => {
         [req.company.id, timezone || 'UTC']
       );
 
-      // FIX: Manually update req.timezone so the immediate successResponse uses the newly saved value
       req.timezone = timezone || 'UTC';
 
       profileData.timezone = timezone;

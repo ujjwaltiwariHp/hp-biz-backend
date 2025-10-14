@@ -30,7 +30,6 @@ async function getCompanyTimezone(companyId) {
 
     return timezone;
   } catch (error) {
-    console.error('Error fetching company timezone:', error);
     return 'UTC';
   }
 }
@@ -92,7 +91,6 @@ async function attachTimezone(req, res, next) {
 
     next();
   } catch (error) {
-    console.error('Timezone middleware error:', error);
     req.timezone = 'UTC';
     req.timezoneSource = 'error_fallback';
     req.timezoneHelper = TimezoneHelper;

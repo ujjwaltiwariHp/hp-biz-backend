@@ -37,9 +37,11 @@ const getCommonTimezones = () => {
 const convertToCompanyTime = (utcTime, timezone = 'UTC') => {
   if (!utcTime) return null;
   try {
-    return moment.utc(utcTime).tz(timezone).format('YYYY-MM-DD HH:mm:ss');
+    const parsed = moment.utc(utcTime);
+    if (!parsed.isValid()) return utcTime;
+    return parsed.tz(timezone).format('YYYY-MM-DDTHH:mm:ss.SSS') + 'Z';
   } catch {
-    return moment.utc(utcTime).format('YYYY-MM-DD HH:mm:ss');
+    return utcTime;
   }
 };
 
@@ -52,20 +54,22 @@ const convertToUTC = (localTime, timezone = 'UTC') => {
   }
 };
 
-const formatInTimezone = (utcTime, timezone = 'UTC', format = 'YYYY-MM-DD HH:mm:ss') => {
+const formatInTimezone = (utcTime, timezone = 'UTC', format = 'YYYY-MM-DDTHH:mm:ss.SSS[Z]') => {
   if (!utcTime) return null;
   try {
-    return moment.utc(utcTime).tz(timezone).format(format);
+    const parsed = moment.utc(utcTime);
+    if (!parsed.isValid()) return utcTime;
+    return parsed.tz(timezone).format(format);
   } catch {
-    return moment.utc(utcTime).format(format);
+    return utcTime;
   }
 };
 
 const getCurrentTimeInTimezone = (timezone = 'UTC') => {
   try {
-    return moment().tz(timezone).format('YYYY-MM-DD HH:mm:ss');
+    return moment().tz(timezone).format('YYYY-MM-DDTHH:mm:ss.SSS') + 'Z';
   } catch {
-    return moment().format('YYYY-MM-DD HH:mm:ss');
+    return moment().format('YYYY-MM-DDTHH:mm:ss.SSS') + 'Z';
   }
 };
 

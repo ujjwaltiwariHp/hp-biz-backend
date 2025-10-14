@@ -34,7 +34,9 @@ const createCompany = async ({ admin_email }) => {
       updated_at
     )
     VALUES ($1, $2, $3, $4, $5, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    RETURNING *;
+    RETURNING id, unique_company_id, company_name, admin_email, password_hash, admin_name, email_verified, is_active,
+    TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
+    TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at;
   `;
 
   const { rows } = await pool.query(query, [
@@ -79,7 +81,9 @@ const updateCompanyProfile = async (companyId, profileData) => {
     WHERE id = $${paramCount} AND email_verified = TRUE
     RETURNING id, unique_company_id, company_name, admin_email, admin_name,
              phone, address, website, industry, company_size, email_verified,
-             is_active, created_at, updated_at;
+             is_active, subscription_package_id, subscription_start_date, subscription_end_date,
+             TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
+             TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at;
   `;
 
   const { rows } = await pool.query(query, values);
@@ -88,7 +92,11 @@ const updateCompanyProfile = async (companyId, profileData) => {
 
 const getCompanyByEmail = async (admin_email) => {
   const { rows } = await pool.query(
-    'SELECT * FROM companies WHERE admin_email = $1',
+    `SELECT id, unique_company_id, company_name, admin_email, admin_name, password_hash,
+            phone, address, website, industry, company_size, email_verified, is_active,
+            TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
+            TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at
+     FROM companies WHERE admin_email = $1`,
     [admin_email]
   );
   return rows[0];
@@ -100,7 +108,8 @@ const getCompanyById = async (id) => {
       `SELECT id, unique_company_id, company_name, admin_email, admin_name, phone, address,
               website, industry, company_size, email_verified, is_active,
               subscription_package_id, subscription_start_date, subscription_end_date,
-              created_at, updated_at
+              TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
+              TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at
        FROM companies
        WHERE id = $1 AND email_verified = TRUE`,
       [id]
@@ -120,7 +129,9 @@ const updateCompanyPassword = async (admin_email, password) => {
         email_verified = TRUE,
         updated_at = CURRENT_TIMESTAMP
     WHERE admin_email = $2
-    RETURNING *;
+    RETURNING id, unique_company_id, company_name, admin_email, admin_name, email_verified, is_active,
+    TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
+    TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at;
   `;
   const { rows } = await pool.query(query, [hashedPassword, admin_email]);
   return rows[0];
@@ -132,7 +143,9 @@ const updateCompanyVerification = async (admin_email, email_verified) => {
     SET email_verified = $1,
         updated_at = CURRENT_TIMESTAMP
     WHERE admin_email = $2
-    RETURNING *;
+    RETURNING id, unique_company_id, company_name, admin_email, admin_name, email_verified, is_active,
+    TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
+    TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at;
   `;
   const { rows } = await pool.query(query, [email_verified, admin_email]);
   return rows[0];

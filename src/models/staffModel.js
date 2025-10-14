@@ -4,7 +4,10 @@ const bcrypt = require('bcryptjs');
 const getAllStaff = async (companyId) => {
   const result = await pool.query(
     `SELECT s.id, s.first_name, s.last_name, s.email, s.phone, s.designation,
-            s.status, s.is_first_login, s.last_login, s.created_at, s.updated_at,
+            s.status, s.is_first_login,
+            TO_CHAR(s.last_login AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as last_login,
+            TO_CHAR(s.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
+            TO_CHAR(s.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at,
             r.role_name, r.permissions, r.id as role_id
      FROM staff s
      LEFT JOIN roles r ON s.role_id = r.id
@@ -18,7 +21,10 @@ const getAllStaff = async (companyId) => {
 const getStaffById = async (id, companyId) => {
   const result = await pool.query(
     `SELECT s.id, s.company_id, s.first_name, s.last_name, s.email, s.phone,
-            s.designation, s.status, s.is_first_login, s.last_login, s.created_at, s.updated_at,
+            s.designation, s.status, s.is_first_login,
+            TO_CHAR(s.last_login AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as last_login,
+            TO_CHAR(s.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
+            TO_CHAR(s.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at,
             r.role_name, r.permissions, r.id as role_id,
             c.company_name, c.unique_company_id
      FROM staff s
@@ -49,7 +55,11 @@ const createStaff = async (data) => {
     `INSERT INTO staff
      (company_id, role_id, first_name, last_name, email, phone, password_hash,
       designation, status, is_first_login)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true) RETURNING *`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
+     RETURNING id, company_id, first_name, last_name, email, phone, designation, status, is_first_login,
+     TO_CHAR(last_login AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as last_login,
+     TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
+     TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at`,
     [company_id, role_id, first_name, last_name, email, phone, password_hash,
      designation, status]
   );
@@ -59,7 +69,6 @@ const createStaff = async (data) => {
     tempPassword
   };
 };
-
 
 const updateStaff = async (id, data, companyId) => {
   const allowedFields = ['first_name', 'last_name', 'email', 'phone', 'designation', 'role_id', 'status', 'last_login'];
@@ -84,7 +93,11 @@ const updateStaff = async (id, data, companyId) => {
   values.push(id, companyId);
   const whereClause = `WHERE id = $${paramCount} AND company_id = $${paramCount + 1}`;
 
-  const query = `UPDATE staff SET ${updateFields.join(', ')} ${whereClause} RETURNING *`;
+  const query = `UPDATE staff SET ${updateFields.join(', ')} ${whereClause}
+    RETURNING id, company_id, first_name, last_name, email, phone, designation, status, is_first_login,
+    TO_CHAR(last_login AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as last_login,
+    TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
+    TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at`;
 
   const result = await pool.query(query, values);
   return result.rows[0];
@@ -146,7 +159,11 @@ const updateStaffStatus = async (id, status, companyId) => {
   }
 
   const result = await pool.query(
-    "UPDATE staff SET status=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND company_id=$3 RETURNING *",
+    `UPDATE staff SET status=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND company_id=$3
+    RETURNING id, company_id, first_name, last_name, email, phone, designation, status, is_first_login,
+    TO_CHAR(last_login AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as last_login,
+    TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
+    TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at`,
     [status, id, companyId]
   );
   return result.rows[0];
@@ -154,7 +171,11 @@ const updateStaffStatus = async (id, status, companyId) => {
 
 const staffLogin = async (email, password) => {
   const result = await pool.query(
-    `SELECT s.*, c.company_name, c.unique_company_id, r.role_name, r.permissions
+    `SELECT s.id, s.company_id, s.first_name, s.last_name, s.email, s.phone, s.designation, s.status, s.is_first_login, s.password_hash,
+            TO_CHAR(s.last_login AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as last_login,
+            TO_CHAR(s.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
+            TO_CHAR(s.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at,
+            c.company_name, c.unique_company_id, r.role_name, r.permissions
      FROM staff s
      JOIN companies c ON s.company_id = c.id
      LEFT JOIN roles r ON s.role_id = r.id
@@ -178,7 +199,11 @@ const updateStaffPassword = async (staffId, newPassword) => {
   const result = await pool.query(
     `UPDATE staff
      SET password_hash=$1, is_first_login=false, updated_at=CURRENT_TIMESTAMP
-     WHERE id=$2 RETURNING *`,
+     WHERE id=$2
+     RETURNING id, company_id, first_name, last_name, email, phone, designation, status, is_first_login,
+     TO_CHAR(last_login AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as last_login,
+     TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
+     TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at`,
     [password_hash, staffId]
   );
 
@@ -198,7 +223,10 @@ const getStaffPerformance = async (id, companyId) => {
   if (!staff) return null;
 
   const performanceResult = await pool.query(
-    `SELECT * FROM staff_performance
+    `SELECT staff_id, period_type,
+     TO_CHAR(period_start AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as period_start,
+     total_leads_assigned, leads_contacted, leads_qualified, leads_converted, conversion_rate, avg_response_time, activities_count
+     FROM staff_performance
      WHERE staff_id = $1 AND period_type = 'monthly'
      AND period_start = DATE_TRUNC('month', CURRENT_DATE)
      ORDER BY period_start DESC LIMIT 1`,
@@ -212,7 +240,7 @@ const getStaffPerformance = async (id, companyId) => {
   return {
     staff_id: id,
     period_type: 'monthly',
-    period_start: new Date().toISOString().slice(0, 7) + '-01',
+    period_start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString(),
     total_leads_assigned: 0,
     leads_contacted: 0,
     leads_qualified: 0,
