@@ -1,20 +1,18 @@
 const Lead = require("../models/leadsModel");
-const { successResponse } = require("../utils/successResponse");
+const { successResponse } = require("../utils/responseFormatter");
 const { errorResponse } = require("../utils/errorResponse");
 const NotificationService = require("../services/notificationService");
+const { parseAndConvertToUTC } = require('../utils/timezoneHelper');
+const Staff = require("../models/staffModel");
 
 const createLead = async (req, res) => {
   try {
     const company_id = req.company.id;
-    const { first_name, last_name, email, phone, lead_source_id, assigned_to, tag } = req.body;
+    const { first_name, last_name, email, phone, lead_source_id, assigned_to, tag, next_follow_up } = req.body;
 
     if (!first_name || !last_name || (!email && !phone) || !lead_source_id) {
       return errorResponse(res, 400, "First name, last name, email/phone, and lead source are required");
     }
-
-    // Duplicate check removed to allow lead creation regardless of existing email/phone
-    // const leadExists = await Lead.isLeadExists(email, phone, company_id);
-    // if (leadExists) return errorResponse(res, 409, "A lead with this email or phone already exists");
 
     let created_by, assigned_by, created_by_type, assigned_by_type;
 
@@ -42,6 +40,10 @@ const createLead = async (req, res) => {
       assigned_by_type: assigned_by_type || null,
       ...req.body
     };
+
+    if (next_follow_up) {
+      leadData.next_follow_up = parseAndConvertToUTC(next_follow_up, req.timezone);
+    }
 
     const newLead = await Lead.createLead(leadData);
     if (tag && typeof tag === 'string') {
@@ -75,7 +77,7 @@ const createLead = async (req, res) => {
       );
     }
 
-    return successResponse(res, "Lead created successfully", createdLeadWithDetails, 201);
+    return successResponse(res, "Lead created successfully", createdLeadWithDetails, 201, req);
   } catch (err) {
     return errorResponse(res, 500, "Failed to create lead. " + err.message);
   }
@@ -85,13 +87,17 @@ const updateLead = async (req, res) => {
   try {
     const companyId = req.company.id;
     const updateData = { ...req.body };
-    const { tag } = req.body;
+    const { tag, next_follow_up } = req.body;
 
     const currentLead = await Lead.getLeadById(req.params.id, companyId);
     if (!currentLead) return errorResponse(res, 404, "Lead not found or unauthorized");
 
     let userType = null;
     let userId = null;
+
+    if (next_follow_up) {
+      updateData.next_follow_up = parseAndConvertToUTC(next_follow_up, req.timezone);
+    }
 
     if (req.body.assigned_to) {
       if (req.staff) {
@@ -140,7 +146,7 @@ const updateLead = async (req, res) => {
       );
     }
 
-    return successResponse(res, "Lead updated successfully", leadWithDetails);
+    return successResponse(res, "Lead updated successfully", leadWithDetails, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -175,9 +181,7 @@ const bulkUploadLeads = async (req, res) => {
       return errorResponse(res, 400, "File contains invalid rows.", { errors: processingErrors });
     }
 
-    let successCount = 0;
-    let failedCount = 0;
-    const finalErrors = [];
+    let successCount = 0, failedCount = 0, finalErrors = [];
     const totalBatches = Math.ceil(leadsToCreate.length / BATCH_SIZE);
 
     for (let i = 0; i < leadsToCreate.length; i += BATCH_SIZE) {
@@ -197,7 +201,7 @@ const bulkUploadLeads = async (req, res) => {
         remarks: lead.remarks || null,
         company_name: lead.company_name || null,
         job_title: lead.job_title || null,
-        status_id: lead.status_id || null,
+        status_id: lead.status_id || defaultStatusId,
         assigned_to: req.body.assigned_to || null,
         created_by,
         created_by_type,
@@ -238,11 +242,13 @@ const bulkUploadLeads = async (req, res) => {
       skipped: 0,
       failed: failedCount,
       errors: finalErrors
-    });
+    }, 200, req);
+
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
 };
+
 
 const updateLeadStatus = async (req, res) => {
   try {
@@ -288,7 +294,7 @@ const updateLeadStatus = async (req, res) => {
       );
     }
 
-    return successResponse(res, "Lead status updated", updatedLead);
+    return successResponse(res, "Lead status updated", updatedLead, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -298,7 +304,7 @@ const getLeads = async (req, res) => {
   try {
     const companyId = req.company.id;
     const leads = await Lead.getLeadsWithTags(companyId);
-    return successResponse(res, "Leads fetched successfully", leads);
+    return successResponse(res, "Leads fetched successfully", leads, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -311,7 +317,7 @@ const getLeadById = async (req, res) => {
     if (!lead) {
       return errorResponse(res, 404, "Lead not found or unauthorized");
     }
-    return successResponse(res, "Lead details fetched", lead);
+    return successResponse(res, "Lead details fetched", lead, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -333,7 +339,7 @@ const deleteLead = async (req, res) => {
       );
     }
 
-    return successResponse(res, "Lead deleted successfully");
+    return successResponse(res, "Lead deleted successfully", {}, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -342,32 +348,40 @@ const deleteLead = async (req, res) => {
 const searchLeads = async (req, res) => {
   try {
     const companyId = req.company.id;
+    const { date_from, date_to, ...queryFilters } = req.query;
+
     const filters = {
-      status_ids: req.query.status_ids ? req.query.status_ids.split(',').map(id => parseInt(id)) : null,
-      tag_ids: req.query.tag_ids ? req.query.tag_ids.split(',').map(id => parseInt(id)) : null,
-      tag_names: req.query.tag_names ? req.query.tag_names.split(',').map(name => name.toLowerCase()) : null,
-      source_ids: req.query.source_ids ? req.query.source_ids.split(',').map(id => parseInt(id)) : null,
-      assigned_to: req.query.assigned_to ? req.query.assigned_to.split(',').map(id => parseInt(id)) : null,
-      search: req.query.search || null,
-      date_from: req.query.date_from || null,
-      date_to: req.query.date_to || null,
-      limit: req.query.limit ? parseInt(req.query.limit) : null,
-      offset: req.query.offset ? parseInt(req.query.offset) : null
+      status_ids: queryFilters.status_ids ? queryFilters.status_ids.split(',').map(id => parseInt(id)) : null,
+      tag_ids: queryFilters.tag_ids ? queryFilters.tag_ids.split(',').map(id => parseInt(id)) : null,
+      tag_names: queryFilters.tag_names ? queryFilters.tag_names.split(',').map(name => name.toLowerCase()) : null,
+      source_ids: queryFilters.source_ids ? queryFilters.source_ids.split(',').map(id => parseInt(id)) : null,
+      assigned_to: queryFilters.assigned_to ? queryFilters.assigned_to.split(',').map(id => parseInt(id)) : null,
+      search: queryFilters.search || null,
+      limit: queryFilters.limit ? parseInt(queryFilters.limit) : null,
+      offset: queryFilters.offset ? parseInt(queryFilters.offset) : null
     };
 
+    if (date_from) {
+      filters.date_from = parseAndConvertToUTC(date_from, req.timezone);
+    }
+    if (date_to) {
+      // Add one day to date_to to make the filter inclusive of the end date
+      const dateToInclusive = new Date(new Date(date_to).getTime() + (24 * 60 * 60 * 1000));
+      filters.date_to = parseAndConvertToUTC(dateToInclusive.toISOString(), req.timezone);
+    }
+
     const leads = await Lead.searchLeads(companyId, filters);
-    return successResponse(res, "Leads fetched successfully", leads);
+    return successResponse(res, "Leads fetched successfully", leads, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
 };
 
 
-
 const getLeadStatuses = async (req, res) => {
   try {
     const statuses = await Lead.getLeadStatuses(req.company.id);
-    return successResponse(res, "Lead statuses fetched successfully", statuses);
+    return successResponse(res, "Lead statuses fetched successfully", statuses, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -380,7 +394,7 @@ const getLeadStatusById = async (req, res) => {
     if (!status) {
       return errorResponse(res, 404, "Lead status not found or unauthorized");
     }
-    return successResponse(res, "Lead status details fetched", status);
+    return successResponse(res, "Lead status details fetched", status, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -396,7 +410,7 @@ const createLeadStatus = async (req, res) => {
     }
 
     const newStatus = await Lead.createLeadStatus({ ...req.body, company_id });
-    return successResponse(res, "Lead status created successfully", newStatus, 201);
+    return successResponse(res, "Lead status created successfully", newStatus, 201, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -409,7 +423,7 @@ const updateLeadStatusRecord = async (req, res) => {
     if (!updatedStatus) {
       return errorResponse(res, 404, "Lead status not found or unauthorized");
     }
-    return successResponse(res, "Lead status updated successfully", updatedStatus);
+    return successResponse(res, "Lead status updated successfully", updatedStatus, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -422,7 +436,7 @@ const deleteLeadStatus = async (req, res) => {
     if (!deleted) {
       return errorResponse(res, 404, "Lead status not found or unauthorized");
     }
-    return successResponse(res, "Lead status deleted successfully");
+    return successResponse(res, "Lead status deleted successfully", {}, 200, req);
   } catch (err) {
     if (err.message.includes("Cannot delete status")) {
       return errorResponse(res, 400, err.message);
@@ -434,7 +448,7 @@ const deleteLeadStatus = async (req, res) => {
 const getLeadSources = async (req, res) => {
   try {
     const sources = await Lead.getLeadSources(req.company.id);
-    return successResponse(res, "Lead sources fetched successfully", sources);
+    return successResponse(res, "Lead sources fetched successfully", sources, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -447,7 +461,7 @@ const getLeadSourceById = async (req, res) => {
     if (!source) {
       return errorResponse(res, 404, "Lead source not found or unauthorized");
     }
-    return successResponse(res, "Lead source details fetched", source);
+    return successResponse(res, "Lead source details fetched", source, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -463,7 +477,7 @@ const createLeadSource = async (req, res) => {
     }
 
     const newSource = await Lead.createLeadSource({ ...req.body, company_id });
-    return successResponse(res, "Lead source created successfully", newSource, 201);
+    return successResponse(res, "Lead source created successfully", newSource, 201, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -476,7 +490,7 @@ const updateLeadSource = async (req, res) => {
     if (!updatedSource) {
       return errorResponse(res, 404, "Lead source not found or unauthorized");
     }
-    return successResponse(res, "Lead source updated successfully", updatedSource);
+    return successResponse(res, "Lead source updated successfully", updatedSource, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -489,7 +503,7 @@ const deleteLeadSource = async (req, res) => {
     if (!deleted) {
       return errorResponse(res, 404, "Lead source not found or unauthorized");
     }
-    return successResponse(res, "Lead source deleted successfully");
+    return successResponse(res, "Lead source deleted successfully", {}, 200, req);
   } catch (err) {
     if (err.message.includes("Cannot delete source")) {
       return errorResponse(res, 400, err.message);
@@ -503,7 +517,7 @@ const getLeadAssignmentHistory = async (req, res) => {
     const companyId = req.company.id;
     const staffId = req.query.staff_id ? parseInt(req.query.staff_id) : null;
     const history = await Lead.getLeadAssignmentHistory(companyId, staffId);
-    return successResponse(res, "Lead assignment history fetched successfully", history);
+    return successResponse(res, "Lead assignment history fetched successfully", history, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -512,7 +526,7 @@ const getLeadAssignmentHistory = async (req, res) => {
 const getLeadTags = async (req, res) => {
   try {
     const tags = await Lead.getLeadTags(req.company.id);
-    return successResponse(res, "Lead tags fetched successfully", tags);
+    return successResponse(res, "Lead tags fetched successfully", tags, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -525,7 +539,7 @@ const getLeadTagById = async (req, res) => {
     if (!tag) {
       return errorResponse(res, 404, "Lead tag not found or unauthorized");
     }
-    return successResponse(res, "Lead tag details fetched", tag);
+    return successResponse(res, "Lead tag details fetched", tag, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -539,7 +553,6 @@ const applyTagToLead = async (req, res) => {
 
     let tagId = tag_id;
 
-    // If tag_name is provided instead of tag_id, get the ID
     if (tag_name && !tag_id) {
       tagId = await Lead.getTagIdByName(tag_name.toLowerCase(), companyId);
       if (!tagId) {
@@ -557,7 +570,7 @@ const applyTagToLead = async (req, res) => {
     }
 
     const appliedTag = await Lead.applyTagToLead(leadId, tagId, applied_by, companyId);
-    return successResponse(res, "Tag applied to lead successfully", appliedTag, 201);
+    return successResponse(res, "Tag applied to lead successfully", appliedTag, 201, req);
   } catch (err) {
     if (err.message.includes("Lead not found") || err.message.includes("Tag not found")) {
       return errorResponse(res, 404, err.message);
@@ -579,7 +592,7 @@ const removeTagFromLead = async (req, res) => {
     if (!removed) {
       return errorResponse(res, 404, "Tag mapping not found or unauthorized");
     }
-    return successResponse(res, "Tag removed from lead successfully");
+    return successResponse(res, "Tag removed from lead successfully", {}, 200, req);
   } catch (err) {
     if (err.message.includes("Lead not found")) {
       return errorResponse(res, 404, err.message);
@@ -594,7 +607,7 @@ const getLeadTagsByLeadId = async (req, res) => {
     const leadId = req.params.id;
 
     const tags = await Lead.getLeadTagsByLeadId(leadId, companyId);
-    return successResponse(res, "Lead tags fetched successfully", tags);
+    return successResponse(res, "Lead tags fetched successfully", tags, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -655,7 +668,7 @@ const getLeadDetails = async (req, res) => {
       },
     };
 
-    return successResponse(res, "Lead details fetched successfully", response);
+    return successResponse(res, "Lead details fetched successfully", response, 200, req);
   } catch (err) {
     return errorResponse(res, 500, "Failed to fetch lead details. " + err.message);
   }
@@ -667,7 +680,7 @@ const getLeadHistory = async (req, res) => {
     const leadId = req.params.id;
 
     const response = await Lead.getLeadHistoryWithTimeline(leadId, companyId);
-    return successResponse(res, "Lead history fetched successfully", response);
+    return successResponse(res, "Lead history fetched successfully", response, 200, req);
   } catch (err) {
     if (err.message === "Lead not found or unauthorized") {
       return errorResponse(res, 404, err.message);
@@ -675,7 +688,6 @@ const getLeadHistory = async (req, res) => {
     return errorResponse(res, 500, "Failed to fetch lead history. " + err.message);
   }
 };
-
 const getLeadFollowUps = async (req, res) => {
   try {
     const companyId = req.company.id;
@@ -702,15 +714,16 @@ const getLeadFollowUps = async (req, res) => {
       followUps: followUps
     };
 
-    return successResponse(res, "Lead follow-ups fetched successfully", response);
+    return successResponse(res, "Lead follow-ups fetched successfully", response, 200, req);
   } catch (err) {
     return errorResponse(res, 500, "Failed to fetch lead follow-ups. " + err.message);
   }
 };
+
 const createFollowUp = async (req, res) => {
   try {
     const leadId = req.params.id;
-    const { remarks } = req.body; // frontend sends remarks instead of message
+    const { remarks, reminder_time } = req.body;
     const companyId = req.company?.id;
 
     if (!remarks) return errorResponse(res, 400, "Remarks for follow-up are required");
@@ -730,8 +743,8 @@ const createFollowUp = async (req, res) => {
       assigned_staff_id = leadExists.assigned_to;
 
       if (!assigned_staff_id) {
-        const staffList = await Staff.getCompanyStaff(companyId);
-        if (staffList.length === 0) {
+        const staffList = await Staff.getAllStaff(companyId);
+        if (!staffList || staffList.length === 0) {
           return errorResponse(res, 400, "Cannot create follow-up: no staff available in the company to assign it to.");
         }
         assigned_staff_id = staffList[0].id;
@@ -748,12 +761,17 @@ const createFollowUp = async (req, res) => {
       lead_id: leadId,
       staff_id: assigned_staff_id,
       company_id: companyId,
-      reminder_time: new Date(),
-      message: remarks,   // map remarks → message before insert
+      message: remarks,
       priority: 'normal',
       created_by,
       created_by_type
     };
+
+    if (reminder_time) {
+      followUpData.reminder_time = parseAndConvertToUTC(reminder_time, req.timezone);
+    } else {
+      followUpData.reminder_time = new Date();
+    }
 
     const newFollowUp = await Lead.createFollowUp(followUpData);
 
@@ -774,11 +792,13 @@ const createFollowUp = async (req, res) => {
       : 'System';
 
     return successResponse(res, "Follow-up created successfully", {
+      id: newFollowUp.id,
+      lead_id: newFollowUp.lead_id,
       follow_up_time: newFollowUp.reminder_time,
       created_at: newFollowUp.created_at,
       created_by: createdByName,
-      remarks: newFollowUp.message, // return remarks in response
-    }, 201);
+      remarks: newFollowUp.message
+    }, 201, req);
   } catch (err) {
     return errorResponse(res, 500, "Failed to create follow-up. " + err.message);
   }
@@ -787,26 +807,30 @@ const createFollowUp = async (req, res) => {
 const updateFollowUp = async (req, res) => {
   try {
     const followUpId = req.params.id;
-    const { remarks, is_completed, reminder_time } = req.body; // frontend sends remarks
+    const { remarks, is_completed, reminder_time } = req.body;
     const companyId = req.company?.id;
 
     const existingFollowUp = await Lead.getFollowUpById(followUpId, companyId);
     if (!existingFollowUp) return errorResponse(res, 404, "Follow-up not found or unauthorized");
 
     const updateData = {};
-    if (remarks !== undefined) updateData.message = remarks; // map remarks → message
+    if (remarks !== undefined) updateData.message = remarks;
     if (is_completed !== undefined) updateData.is_completed = is_completed;
-    if (reminder_time !== undefined) updateData.reminder_time = reminder_time;
+
+    if (reminder_time !== undefined) {
+      updateData.reminder_time = parseAndConvertToUTC(reminder_time, req.timezone);
+    }
 
     const updatedFollowUp = await Lead.updateFollowUp(followUpId, updateData, companyId);
 
     return successResponse(res, "Follow-up updated successfully", {
+      id: updatedFollowUp.id,
       follow_up_time: updatedFollowUp.reminder_time,
       updated_at: updatedFollowUp.updated_at,
-      remarks: updatedFollowUp.message, // return remarks in response
+      remarks: updatedFollowUp.message,
       is_completed: updatedFollowUp.is_completed,
       completed_at: updatedFollowUp.completed_at
-    });
+    }, 200, req);
   } catch (err) {
     return errorResponse(res, 500, "Failed to update follow-up. " + err.message);
   }
@@ -815,21 +839,28 @@ const updateFollowUp = async (req, res) => {
 const getAllFollowUps = async (req, res) => {
   try {
     const companyId = req.company.id;
+    const { date_from, date_to, ...queryFilters } = req.query;
+
     const filters = {
-      staff_id: req.query.staff_id ? parseInt(req.query.staff_id) : null,
-      is_completed: req.query.is_completed !== undefined ? req.query.is_completed === 'true' : undefined,
-      date_from: req.query.date_from || null,
-      date_to: req.query.date_to || null,
-      limit: req.query.limit ? parseInt(req.query.limit) : null
+      staff_id: queryFilters.staff_id ? parseInt(queryFilters.staff_id) : null,
+      is_completed: queryFilters.is_completed !== undefined ? queryFilters.is_completed === 'true' : undefined,
+      limit: queryFilters.limit ? parseInt(queryFilters.limit) : null
     };
 
+    if (date_from) {
+      filters.date_from = parseAndConvertToUTC(date_from, req.timezone);
+    }
+    if (date_to) {
+      const dateToInclusive = new Date(new Date(date_to).getTime() + (24 * 60 * 60 * 1000));
+      filters.date_to = parseAndConvertToUTC(dateToInclusive.toISOString(), req.timezone);
+    }
+
     const followUps = await Lead.getAllFollowUps(companyId, filters);
-    return successResponse(res, "Follow-ups fetched successfully", followUps);
+    return successResponse(res, "Follow-ups fetched successfully", followUps, 200, req);
   } catch (err) {
     return errorResponse(res, 500, "Failed to fetch follow-ups. " + err.message);
   }
 };
-
 
 const deleteFollowUp = async (req, res) => {
   try {
@@ -872,7 +903,7 @@ const deleteFollowUp = async (req, res) => {
       );
     }
 
-    return successResponse(res, "Follow-up deleted successfully");
+    return successResponse(res, "Follow-up deleted successfully", {}, 200, req);
   } catch (err) {
     return errorResponse(res, 500, "Failed to delete follow-up. " + err.message);
   }
@@ -888,7 +919,7 @@ const getFollowUpById = async (req, res) => {
       return errorResponse(res, 404, "Follow-up not found or unauthorized");
     }
 
-    return successResponse(res, "Follow-up fetched successfully", followUp);
+    return successResponse(res, "Follow-up fetched successfully", followUp, 200, req);
   } catch (err) {
     return errorResponse(res, 500, "Failed to fetch follow-up. " + err.message);
   }
@@ -930,7 +961,7 @@ const markFollowUpComplete = async (req, res) => {
       );
     }
 
-    return successResponse(res, "Follow-up marked as completed successfully", completedFollowUp);
+    return successResponse(res, "Follow-up marked as completed successfully", completedFollowUp, 200, req);
   } catch (err) {
     return errorResponse(res, 500, "Failed to complete follow-up. " + err.message);
   }
@@ -954,7 +985,10 @@ const updateLeadFollowUp = async (req, res) => {
     const updateData = {};
     if (remarks !== undefined) updateData.message = remarks;
     if (is_completed !== undefined) updateData.is_completed = is_completed;
-    if (reminder_time !== undefined) updateData.reminder_time = reminder_time;
+
+    if (reminder_time !== undefined) {
+      updateData.reminder_time = parseAndConvertToUTC(reminder_time, req.timezone);
+    }
 
     const updatedFollowUp = await Lead.updateFollowUp(followUpId, updateData, companyId);
 
@@ -965,7 +999,7 @@ const updateLeadFollowUp = async (req, res) => {
       remarks: updatedFollowUp.message,
       is_completed: updatedFollowUp.is_completed,
       completed_at: updatedFollowUp.completed_at
-    });
+    }, 200, req);
   } catch (err) {
     return errorResponse(res, 500, "Failed to update follow-up. " + err.message);
   }
@@ -1020,12 +1054,11 @@ const deleteLeadFollowUp = async (req, res) => {
       );
     }
 
-    return successResponse(res, "Follow-up deleted successfully");
+    return successResponse(res, "Follow-up deleted successfully", {}, 200, req);
   } catch (err) {
     return errorResponse(res, 500, "Failed to delete follow-up. " + err.message);
   }
 };
-
 
 module.exports = {
   createLead,
@@ -1061,6 +1094,6 @@ module.exports = {
   updateFollowUp,
   deleteFollowUp,
   markFollowUpComplete,
-   updateLeadFollowUp,
+  updateLeadFollowUp,
   deleteLeadFollowUp
 };
