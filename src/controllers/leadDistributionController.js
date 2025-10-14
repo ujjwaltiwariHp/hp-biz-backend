@@ -1,5 +1,5 @@
 const LeadDistribution = require("../models/leadDistributionModel");
-const { successResponse } = require("../utils/successResponse");
+const { successResponse } = require("../utils/responseFormatter");
 const { errorResponse } = require("../utils/errorResponse");
 
 const getDistributionSettings = async (req, res) => {
@@ -8,10 +8,10 @@ const getDistributionSettings = async (req, res) => {
     const settings = await LeadDistribution.getDistributionSettings(companyId);
 
     if (!settings) {
-      return successResponse(res, "No distribution settings found", null);
+      return successResponse(res, "No distribution settings found", null, 200, req);
     }
 
-    return successResponse(res, "Distribution settings fetched successfully", settings);
+    return successResponse(res, "Distribution settings fetched successfully", settings, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -35,7 +35,7 @@ const updateDistributionSettings = async (req, res) => {
       settings = await LeadDistribution.createDistributionSettings(companyId, req.body);
     }
 
-    return successResponse(res, "Distribution settings updated successfully", settings);
+    return successResponse(res, "Distribution settings updated successfully", settings, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -62,7 +62,7 @@ const manualAssignLeads = async (req, res) => {
     return successResponse(res, "Leads assigned manually", {
       total_assigned: totalAssigned,
       assignments: results
-    });
+    }, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -80,7 +80,7 @@ const automaticAssignLeads = async (req, res) => {
     const unassignedLeads = await LeadDistribution.getUnassignedLeads(companyId, count);
 
     if (unassignedLeads.length === 0) {
-      return successResponse(res, "No unassigned leads available", { assigned_count: 0 });
+      return successResponse(res, "No unassigned leads available", { assigned_count: 0 }, 200, req);
     }
 
     const staffWorkload = await LeadDistribution.getStaffWorkload(companyId);
@@ -116,7 +116,7 @@ const automaticAssignLeads = async (req, res) => {
     return successResponse(res, "Leads assigned automatically based on workload", {
       total_assigned: totalAssigned,
       assignments: results
-    });
+    }, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -134,7 +134,7 @@ const roundRobinAssignLeads = async (req, res) => {
     const unassignedLeads = await LeadDistribution.getUnassignedLeads(companyId, count);
 
     if (unassignedLeads.length === 0) {
-      return successResponse(res, "No unassigned leads available", { assigned_count: 0 });
+      return successResponse(res, "No unassigned leads available", { assigned_count: 0 }, 200, req);
     }
 
     const activeStaff = await LeadDistribution.getActiveStaff(companyId);
@@ -178,7 +178,7 @@ const roundRobinAssignLeads = async (req, res) => {
     return successResponse(res, "Leads assigned using round robin method", {
       total_assigned: totalAssigned,
       assignments: results
-    });
+    }, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -196,7 +196,7 @@ const performanceBasedAssignLeads = async (req, res) => {
     const unassignedLeads = await LeadDistribution.getUnassignedLeads(companyId, count);
 
     if (unassignedLeads.length === 0) {
-      return successResponse(res, "No unassigned leads available", { assigned_count: 0 });
+      return successResponse(res, "No unassigned leads available", { assigned_count: 0 }, 200, req);
     }
 
     const staffPerformance = await LeadDistribution.getStaffPerformance(companyId);
@@ -247,7 +247,7 @@ const performanceBasedAssignLeads = async (req, res) => {
     return successResponse(res, "Leads assigned based on performance", {
       total_assigned: totalAssigned,
       assignments: results
-    });
+    }, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -257,7 +257,7 @@ const getStaffWorkload = async (req, res) => {
   try {
     const companyId = req.company.id;
     const workload = await LeadDistribution.getStaffWorkload(companyId);
-    return successResponse(res, "Staff workload fetched successfully", workload);
+    return successResponse(res, "Staff workload fetched successfully", workload, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -273,7 +273,7 @@ const getUnassignedLeads = async (req, res) => {
     return successResponse(res, "Unassigned leads fetched successfully", {
       count: unassignedLeads.length,
       leads: unassignedLeads
-    });
+    }, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
