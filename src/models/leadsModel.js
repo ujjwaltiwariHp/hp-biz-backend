@@ -1,4 +1,7 @@
 const pool = require("../config/database");
+const { pipeline } = require('stream');
+const { from: copyFrom } = require('pg-copy-streams');
+const { Readable } = require('stream');
 
 
 const ensureDefaultTagsExist = async (companyId) => {
@@ -97,6 +100,66 @@ const createLead = async (data) => {
 
   const result = await pool.query(query, values);
   return result.rows[0];
+};
+
+const bulkCreateLeadsWithCopy = async (leadsBatch, defaultStatusId) => {
+  if (leadsBatch.length === 0) return { rowCount: 0 };
+
+  const client = await pool.connect();
+
+  try {
+    const now = new Date().toISOString();
+
+    const csvData = leadsBatch.map(lead => {
+      const statusId = lead.status_id ? parseInt(lead.status_id, 10) : defaultStatusId;
+      const assignedTo = lead.assigned_to && !isNaN(parseInt(lead.assigned_to, 10)) ? parseInt(lead.assigned_to, 10) : null;
+      const assignedAt = assignedTo ? now : null;
+
+      return [
+        lead.company_id || '',
+        lead.lead_source_id || '',
+        statusId || defaultStatusId,
+        assignedTo || '',
+        lead.first_name || '',
+        lead.last_name || '',
+        lead.email || '',
+        lead.phone || '',
+        lead.address || '',
+        lead.remarks || '',
+        lead.company_name || '',
+        lead.job_title || '',
+        lead.created_by || '',
+        lead.created_by_type || '',
+        lead.assigned_by || '',
+        lead.assigned_by_type || '',
+        assignedAt || ''
+      ].join('\t');
+    }).join('\n');
+
+    const stream = client.query(copyFrom(`
+      COPY leads (
+        company_id, lead_source_id, status_id, assigned_to,
+        first_name, last_name, email, phone, address, remarks,
+        company_name, job_title, created_by, created_by_type,
+        assigned_by, assigned_by_type, assigned_at
+      ) FROM STDIN WITH (FORMAT csv, DELIMITER E'\\t', NULL '')
+    `));
+
+    const dataStream = Readable.from([csvData]);
+
+    await new Promise((resolve, reject) => {
+      pipeline(dataStream, stream, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+
+    return { rowCount: leadsBatch.length };
+  } catch (error) {
+    throw error;
+  } finally {
+    client.release();
+  }
 };
 
 const updateLead = async (id, data, companyId) => {
@@ -1418,6 +1481,7 @@ const getLeadHistoryWithTimeline = async (leadId, companyId) => {
 
 module.exports = {
   createLead,
+  bulkCreateLeadsWithCopy,
   getLeads,
   getLeadById,
   updateLead,

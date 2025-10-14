@@ -156,8 +156,10 @@ const bulkUploadLeads = async (req, res) => {
   try {
     const { leadsToCreate, processingErrors, lead_source_id } = req;
     const companyId = req.company.id;
+    const BATCH_SIZE = 25000;
 
     let created_by, assigned_by, created_by_type, assigned_by_type;
+    let defaultStatusId = 1;
 
     if (req.staff) {
       created_by = req.staff.id;
@@ -179,53 +181,56 @@ const bulkUploadLeads = async (req, res) => {
       return errorResponse(res, 400, "File contains invalid rows.", { errors: processingErrors });
     }
 
-    let successCount = 0, duplicateCount = 0, failedCount = 0, finalErrors = [];
-    const createdLeadIds = [];
+    let successCount = 0, failedCount = 0, finalErrors = [];
+    const totalBatches = Math.ceil(leadsToCreate.length / BATCH_SIZE);
 
-    for (const lead of leadsToCreate) {
+    for (let i = 0; i < leadsToCreate.length; i += BATCH_SIZE) {
+      const batch = leadsToCreate.slice(i, i + BATCH_SIZE);
+      const currentBatch = (i / BATCH_SIZE) + 1;
+
+      console.log(`Processing batch ${currentBatch} of ${totalBatches} (${batch.length} records)`);
+
+      const preparedBatch = batch.map(lead => ({
+        company_id: companyId,
+        lead_source_id: parseInt(lead_source_id),
+        first_name: lead.first_name,
+        last_name: lead.last_name,
+        email: lead.email,
+        phone: lead.phone,
+        address: lead.address || null,
+        remarks: lead.remarks || null,
+        company_name: lead.company_name || null,
+        job_title: lead.job_title || null,
+        status_id: lead.status_id || defaultStatusId,
+        assigned_to: req.body.assigned_to || null,
+        created_by,
+        created_by_type,
+        assigned_by: assigned_by || null,
+        assigned_by_type: assigned_by_type || null
+      }));
+
       try {
-        // REMOVED DUPLICATE CHECK: Allowing all leads to be created regardless of email/phone existence
-        // const isDuplicate = await Lead.isLeadExists(lead.email, lead.phone, companyId);
-        // if (isDuplicate) {
-        //   duplicateCount++;
-        // } else {
-          const newLead = await Lead.createLead({
-            ...lead,
-            company_id: companyId,
-            lead_source_id: parseInt(lead_source_id),
-            created_by,
-            created_by_type,
-            assigned_by: assigned_by || null,
-            assigned_by_type: assigned_by_type || null
-          });
-          successCount++;
-          if (req.body.assigned_to) {
-            createdLeadIds.push(newLead.id);
-          }
-          if (created_by && created_by_type === 'staff') {
-            await Lead.trackLeadCreation(newLead.id, created_by, companyId);
-          }
+        const startTime = Date.now();
+        const result = await Lead.bulkCreateLeadsWithCopy(preparedBatch, defaultStatusId);
+        const endTime = Date.now();
+
+        successCount += result.rowCount;
+        console.log(`✓ Batch ${currentBatch} completed in ${endTime - startTime}ms (${Math.round(result.rowCount / ((endTime - startTime) / 1000))} records/sec)`);
       } catch (dbError) {
-        failedCount++;
-        finalErrors.push(`Failed to create lead for ${lead.email || lead.phone}: ${dbError.message}`);
+        failedCount += batch.length;
+        finalErrors.push(`Batch starting at index ${i} failed: ${dbError.message}`);
+        console.error(`✗ Batch ${currentBatch} failed: ${dbError.message}`);
       }
     }
 
-    if (createdLeadIds.length > 0 && req.body.assigned_to && assigned_by) {
-      await NotificationService.createBulkAssignmentNotification(
-        createdLeadIds,
-        req.body.assigned_to,
-        assigned_by,
-        companyId
-      );
-    }
+    console.log(`\nUpload Summary: ${successCount}/${leadsToCreate.length} records imported successfully`);
 
     if (created_by_type === 'staff' && successCount > 0) {
       await NotificationService.createCustomNotification(
         companyId,
         'admin',
-        'Bulk Lead Upload',
-        `${successCount} leads were imported via bulk upload`,
+        'Bulk Lead Upload Complete',
+        `${successCount} leads were imported successfully.`,
         'bulk_upload',
         'normal'
       );
@@ -238,10 +243,12 @@ const bulkUploadLeads = async (req, res) => {
       failed: failedCount,
       errors: finalErrors
     }, 200, req);
+
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
 };
+
 
 const updateLeadStatus = async (req, res) => {
   try {
