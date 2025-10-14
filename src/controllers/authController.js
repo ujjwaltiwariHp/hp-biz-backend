@@ -16,11 +16,19 @@ const {
 const { staffLogin: staffLoginModel } = require('../models/staffModel');
 const Staff = require("../models/staffModel");
 
+const pool = require('../config/database');
+
 const { sendSignupOTPEmail, sendResetOTPEmail } = require('../services/emailService');
 const { generateOTP } = require('../utils/generateOTP');
 const { generateToken } = require('../utils/jwtHelper');
 const { errorResponse } = require('../utils/errorResponse');
-const { successResponse } = require('../utils/successResponse');
+const { successResponse } = require('../utils/responseFormatter');
+const {
+  getAllTimezones,
+  getCommonTimezones: getCommonTimezonesHelper,
+  parseAndConvertToUTC,
+  isValidTimezone
+} = require('../utils/timezoneHelper');
 const { createNotification } = require('../../src/models/super-admin-models/notificationModel');
 
 const signup = async (req, res) => {
@@ -51,7 +59,7 @@ const signup = async (req, res) => {
         await createCompany({ admin_email: email });
       }
 
-      return successResponse(res, "OTP sent to your email address");
+      return successResponse(res, "OTP sent to your email address", {}, 200, req);
     } catch (emailError) {
       return errorResponse(res, 500, "Failed to send OTP email");
     }
@@ -88,7 +96,8 @@ const verifyOTP = async (req, res) => {
       await updateCompanyVerification(email, true);
     }
 
-    return successResponse(res, "OTP verified successfully");
+
+    return successResponse(res, "OTP verified successfully", {}, 200, req);
 
   } catch (error) {
     return errorResponse(res, 500, "Internal server error");
@@ -115,7 +124,7 @@ const setPassword = async (req, res) => {
     await updateCompanyPassword(email, password);
     await updateCompanyVerification(email, true);
 
-    return successResponse(res, "Password set successfully. You can now login.");
+    return successResponse(res, "Password set successfully. You can now login.", {}, 200, req);
 
   } catch (error) {
     return errorResponse(res, 500, "Internal server error");
@@ -144,8 +153,6 @@ const login = async (req, res) => {
         });
 
         const responseData = {
-          success: true,
-          message: "Login successful",
           token,
           company: {
             id: company.id,
@@ -157,7 +164,7 @@ const login = async (req, res) => {
           }
         };
 
-       return res.status(200).json(responseData);
+        return successResponse(res, "Login successful", responseData, 200, req);
       }
     }
 
@@ -174,8 +181,6 @@ const login = async (req, res) => {
         });
 
         const responseData = {
-          success: true,
-          message: "Login successful",
           token,
           staff: {
             id: staff.id,
@@ -193,7 +198,7 @@ const login = async (req, res) => {
             last_login: staff.last_login
           }
         };
-        return res.status(200).json(responseData);
+        return successResponse(res, "Login successful", responseData, 200, req);
       }
     } catch (staffError) {
     }
@@ -222,7 +227,7 @@ const forgotPassword = async (req, res) => {
     await createResetOTP({ email, otp, expires_at: expiresAt });
     await sendResetOTPEmail(email, otp);
 
-    return successResponse(res, "Password reset OTP sent to email");
+    return successResponse(res, "Password reset OTP sent to email", {}, 200, req);
 
   } catch (error) {
     return errorResponse(res, 500, "Internal server error");
@@ -240,7 +245,7 @@ const resetPassword = async (req, res) => {
 
     await updateCompanyPassword(email, password);
 
-    return successResponse(res, "Password reset successfully");
+    return successResponse(res, "Password reset successfully", {}, 200, req);
 
   } catch (error) {
     return errorResponse(res, 500, "Internal server error");
@@ -261,7 +266,8 @@ const updateProfile = async (req, res) => {
       address,
       website,
       industry,
-      company_size
+      company_size,
+      timezone
     } = req.body;
 
     const profileData = {};
@@ -310,6 +316,24 @@ const updateProfile = async (req, res) => {
       profileData.company_size = company_size;
     }
 
+    if (timezone !== undefined) {
+      if (timezone && !isValidTimezone(timezone)) {
+        return errorResponse(res, 400, "Invalid timezone. Please provide a valid IANA timezone.");
+      }
+      await pool.query(
+        `INSERT INTO company_settings (company_id, timezone, updated_at)
+         VALUES ($1, $2, CURRENT_TIMESTAMP)
+         ON CONFLICT (company_id)
+         DO UPDATE SET timezone = $2, updated_at = CURRENT_TIMESTAMP`,
+        [req.company.id, timezone || 'UTC']
+      );
+
+      req.timezone = timezone || 'UTC';
+
+      profileData.timezone = timezone;
+    }
+
+
     if (Object.keys(profileData).length === 0) {
       return errorResponse(res, 400, "No valid fields provided for update");
     }
@@ -325,7 +349,9 @@ const updateProfile = async (req, res) => {
       await createNotification({
         company_id: req.company.id,
         title: 'Profile Updated',
-        message: 'Your company profile has been updated.',
+        message: timezone
+          ? `Your company profile has been updated. Timezone changed to ${timezone}`
+          : 'Your company profile has been updated.',
         notification_type: 'profile_update',
         priority: 'normal',
         is_read: false,
@@ -336,7 +362,7 @@ const updateProfile = async (req, res) => {
 
     return successResponse(res, "Company profile updated successfully", {
       company: updatedCompany
-    });
+    }, 200, req);
 
   } catch (error) {
     if (error.message.includes("No valid fields")) {
@@ -350,8 +376,15 @@ const getProfile = async (req, res) => {
   try {
     if (req.userType === 'admin') {
       const company = req.company;
-      return res.status(200).json({
-        success: true,
+
+      const { rows } = await pool.query(
+        'SELECT timezone FROM company_settings WHERE company_id = $1',
+        [company.id]
+      );
+
+      const timezone = rows[0]?.timezone || 'UTC';
+
+      const profileData = {
         company: {
           id: company.id,
           admin_email: company.admin_email,
@@ -366,13 +399,15 @@ const getProfile = async (req, res) => {
           email_verified: company.email_verified,
           is_active: company.is_active,
           created_at: company.created_at,
-          updated_at: company.updated_at
+          updated_at: company.updated_at,
+          timezone: timezone
         }
-      });
+      };
+
+      return successResponse(res, "Profile fetched successfully", profileData, 200, req);
     } else if (req.userType === 'staff') {
       const staff = req.staff;
-      return res.status(200).json({
-        success: true,
+      const staffData = {
         staff: {
           id: staff.id,
           company_id: staff.company_id,
@@ -386,7 +421,8 @@ const getProfile = async (req, res) => {
           status: staff.status,
           last_login: staff.last_login
         }
-      });
+      };
+      return successResponse(res, "Profile fetched successfully", staffData, 200, req);
     }
   } catch (error) {
     return errorResponse(res, 500, "Internal server error");
@@ -405,7 +441,7 @@ const changePassword = async (req, res) => {
 
       await updateCompanyPassword(req.company.admin_email, new_password);
 
-      return successResponse(res, "Password updated successfully");
+      return successResponse(res, "Password updated successfully", {}, 200, req);
 
     } else if (req.userType === 'staff') {
       const staffId = req.staff.id;
@@ -423,11 +459,9 @@ const changePassword = async (req, res) => {
 
       const updatedStaff = await Staff.updateStaffPassword(staffId, new_password);
 
-      return res.status(200).json({
-        success: true,
-        message: "Password updated successfully",
+      return successResponse(res, "Password updated successfully", {
         is_first_login: updatedStaff.is_first_login
-      });
+      }, 200, req);
     }
   } catch (err) {
     return errorResponse(res, 500, err.message);
@@ -441,9 +475,33 @@ const logout = async (req, res) => {
       await invalidateSession(company.id);
     }
 
-    return successResponse(res, "Logged out successfully");
+    return successResponse(res, "Logged out successfully", {}, 200, req);
   } catch (error) {
     return errorResponse(res, 500, "Internal server error");
+  }
+};
+
+const getTimezones = async (req, res) => {
+  try {
+    const timezones = getAllTimezones();
+    return successResponse(res, "Timezones fetched successfully", {
+      timezones,
+      count: timezones.length
+    }, 200, req);
+  } catch (error) {
+    return errorResponse(res, 500, "Failed to fetch timezones");
+  }
+};
+
+const getCommonTimezonesController = async (req, res) => {
+  try {
+    const timezones = getCommonTimezonesHelper();
+    return successResponse(res, "Common timezones fetched successfully", {
+      timezones,
+      count: timezones.length
+    }, 200, req);
+  } catch (error) {
+    return errorResponse(res, 500, "Failed to fetch common timezones");
   }
 };
 
@@ -457,5 +515,7 @@ module.exports = {
   changePassword,
   forgotPassword,
   resetPassword,
-  logout
+  logout,
+  getTimezones,
+  getCommonTimezones: getCommonTimezonesController
 };

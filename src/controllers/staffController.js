@@ -1,7 +1,9 @@
 const Staff = require("../models/staffModel");
-const { successResponse } = require("../utils/successResponse");
+const { successResponse, successResponseWithPagination } = require("../utils/responseFormatter");
 const { errorResponse } = require("../utils/errorResponse");
 const { sendStaffWelcomeEmail } = require('../services/emailService');
+const { parseAndConvertToUTC } = require('../utils/timezoneHelper');
+
 
 const getAllStaff = async (req, res) => {
   try {
@@ -9,10 +11,10 @@ const getAllStaff = async (req, res) => {
     const staff = await Staff.getAllStaff(companyId);
 
     if (!staff || staff.length === 0) {
-      return successResponse(res, "No staff found", []);
+      return successResponse(res, "No staff found", [], 200, req);
     }
 
-    return successResponse(res, "Staff list fetched", staff);
+    return successResponse(res, "Staff list fetched", staff, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -24,10 +26,10 @@ const getStaffById = async (req, res) => {
     const staff = await Staff.getStaffById(req.params.id, companyId);
 
     if (!staff) {
-      return successResponse(res, "No staff found", null);
+      return successResponse(res, "No staff found", null, 200, req);
     }
 
-    return successResponse(res, "Staff details fetched", staff);
+    return successResponse(res, "Staff details fetched", staff, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -79,7 +81,7 @@ const createStaff = async (req, res) => {
 
     const staffDetails = await Staff.getStaffById(result.staff.id, company_id);
 
-    const loginUrl = process.env.APP_LOGIN_URL || 'https://your-app-login-url.com/login';
+    const loginUrl = process.env.APP_LOGIN_URL || 'https://app-login-url.com/login';
 
     await sendStaffWelcomeEmail(staffDetails.email, staffDetails.first_name, result.tempPassword, loginUrl);
 
@@ -103,10 +105,10 @@ const createStaff = async (req, res) => {
       res,
       "Staff created successfully. An email with login instructions has been sent.",
       responseData,
-      201
+      201,
+      req
     );
   } catch (err) {
-    console.error('Error creating staff:', err);
     return errorResponse(res, 500, "Failed to create staff or send welcome email. " + err.message);
   }
 };
@@ -151,7 +153,7 @@ const updateStaff = async (req, res) => {
     if (!updatedStaff) return errorResponse(res, 404, "Staff not found or unauthorized");
     const staffWithRole = await Staff.getStaffById(req.params.id, companyId);
 
-    return successResponse(res, "Staff updated successfully", staffWithRole);
+    return successResponse(res, "Staff updated successfully", staffWithRole, 200, req);
   } catch (err) {
     if (err.message === "Cannot deactivate the last admin user") {
       return errorResponse(res, 403, err.message);
@@ -165,7 +167,7 @@ const deleteStaff = async (req, res) => {
     const companyId = req.company.id;
     const deleted = await Staff.deleteStaff(req.params.id, companyId);
     if (!deleted) return errorResponse(res, 404, "Staff not found or unauthorized");
-    return successResponse(res, "Staff deleted successfully");
+    return successResponse(res, "Staff deleted successfully", {}, 200, req);
   } catch (err) {
     if (err.message === "Cannot delete the last admin user") {
       return errorResponse(res, 403, err.message);
@@ -185,7 +187,7 @@ const updateStaffStatus = async (req, res) => {
 
     const updated = await Staff.updateStaffStatus(req.params.id, status, companyId);
     if (!updated) return errorResponse(res, 404, "Staff not found or unauthorized");
-    return successResponse(res, "Staff status updated", updated);
+    return successResponse(res, "Staff status updated", updated, 200, req);
   } catch (err) {
     if (err.message === "Cannot deactivate the last admin user") {
       return errorResponse(res, 403, err.message);
@@ -199,7 +201,7 @@ const getStaffPerformance = async (req, res) => {
     const companyId = req.company.id;
     const performance = await Staff.getStaffPerformance(req.params.id, companyId);
     if (!performance) return errorResponse(res, 404, "Staff not found or unauthorized");
-    return successResponse(res, "Staff performance fetched", performance);
+    return successResponse(res, "Staff performance fetched", performance, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -209,7 +211,7 @@ const getCompanyRoles = async (req, res) => {
   try {
     const companyId = req.company.id;
     const roles = await Staff.getCompanyRoles(companyId);
-    return successResponse(res, "Roles fetched successfully", roles);
+    return successResponse(res, "Roles fetched successfully", roles, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -219,7 +221,7 @@ const getStaffStats = async (req, res) => {
   try {
     const companyId = req.company.id;
     const stats = await Staff.getStaffStats(companyId);
-    return successResponse(res, "Staff statistics fetched", stats);
+    return successResponse(res, "Staff statistics fetched", stats, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -228,7 +230,7 @@ const getStaffStats = async (req, res) => {
 const getDesignationOptions = async (req, res) => {
   try {
     const designations = await Staff.getDesignationOptions();
-    return successResponse(res, "Designation options fetched", designations);
+    return successResponse(res, "Designation options fetched", designations, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -237,7 +239,7 @@ const getDesignationOptions = async (req, res) => {
 const getStatusOptions = async (req, res) => {
   try {
     const statuses = await Staff.getStatusOptions();
-    return successResponse(res, "Status options fetched", statuses);
+    return successResponse(res, "Status options fetched", statuses, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }

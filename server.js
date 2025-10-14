@@ -25,6 +25,7 @@ const { startOtpCleanupJob } = require('./src/jobs/otpCleanup');
 const { globalLogActivity } = require('./src/middleware/loggingMiddleware');
 const { logError } = require('./src/middleware/loggingMiddleware');
 const { startNotificationCron } = require('./src/utils/notificationCron');
+const { attachTimezone, attachTimezoneForSuperAdmin } = require('./src/middleware/timezoneMiddleware');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -32,6 +33,9 @@ const PORT = process.env.PORT || 3000;
 app.set('trust proxy', 1);
 
 app.use(helmet());
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 const allowedOrigins = [
   "http://localhost:3000",
@@ -81,21 +85,21 @@ app.get('/health', (req, res) => {
 });
 app.use(globalLogActivity);
 
-app.use('/api/v1/auth', authRoutes);
-app.use('/api/v1/staff', staffRoutes);
-app.use('/api/v1/roles', roleRoutes);
-app.use('/api/v1/leads', leadRoutes);
-app.use('/api/v1/leadsDistribution', leadDistributionRoutes);
-app.use('/api/v1/performance', performanceRoutes);
-app.use('/api/v1/notifications', notificationRoutes);
-app.use('/api/v1/logs', loggingRoutes);
-app.use('/api/v1/super-admin/auth', superAdminAuthRoutes);
-app.use('/api/v1/super-admin/companies', superAdminCompanyRoutes);
-app.use('/api/v1/super-admin/subscriptions', superAdminSubscriptionRoutes);
-app.use('/api/v1/super-admin/payments', superAdminPaymentRoutes);
-app.use('/api/v1/super-admin/invoices', superAdminInvoiceRoutes);
-app.use('/api/v1/super-admin/notifications', superAdminnotificationRoutes);
-app.use('/api/v1/super-admin/logs', superAdminLoggingRoutes);
+app.use('/api/v1/auth',attachTimezone, authRoutes);
+app.use('/api/v1/staff',attachTimezone,  staffRoutes);
+app.use('/api/v1/roles',attachTimezone,  roleRoutes);
+app.use('/api/v1/leads',attachTimezone,  leadRoutes);
+app.use('/api/v1/leadsDistribution',attachTimezone,  leadDistributionRoutes);
+app.use('/api/v1/performance',attachTimezone,  performanceRoutes);
+app.use('/api/v1/notifications',attachTimezone,  notificationRoutes);
+app.use('/api/v1/logs',attachTimezone,  loggingRoutes);
+app.use('/api/v1/super-admin/auth',attachTimezoneForSuperAdmin, superAdminAuthRoutes);
+app.use('/api/v1/super-admin/companies',attachTimezoneForSuperAdmin, superAdminCompanyRoutes);
+app.use('/api/v1/super-admin/subscriptions',attachTimezoneForSuperAdmin, superAdminSubscriptionRoutes);
+app.use('/api/v1/super-admin/payments',attachTimezoneForSuperAdmin, superAdminPaymentRoutes);
+app.use('/api/v1/super-admin/invoices',attachTimezoneForSuperAdmin, superAdminInvoiceRoutes);
+app.use('/api/v1/super-admin/notifications',attachTimezoneForSuperAdmin, superAdminnotificationRoutes);
+app.use('/api/v1/super-admin/logs',attachTimezoneForSuperAdmin, superAdminLoggingRoutes);
 
 
 app.use((req, res) => {
