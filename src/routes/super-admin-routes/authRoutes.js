@@ -10,191 +10,40 @@ const {
   changePassword,
   logout,
   deleteAdmin,
-  toggleAdminStatus
+  toggleAdminStatus,
+  getSuperAdminRoles,
+  updateSuperAdminRolePermissions
 } = require("../../controllers/super-admin-controllers/authController");
 
 const { authenticateSuperAdmin } = require("../../middleware/super-admin-middleware/authMiddleware");
+const { requireSuperAdminPermission } = require("../../middleware/super-admin-middleware/superAdminPermissionMiddleware");
 const {
   validateSuperAdminCreation,
   validateSuperAdminLogin,
   validateProfileUpdate,
   validatePasswordChange,
 } = require("../../middleware/super-admin-middleware/authValidation");
-
-/**
- * @swagger
- * tags:
- *   name: Super Admin - Auth
- *   description: Super admin authentication endpoints
- */
-
-/**
- * @swagger
- * /api/v1/super-admin/auth/login:
- *   post:
- *     summary: Super admin login
- *     tags: [Super Admin - Auth]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - email
- *               - password
- *             properties:
- *               email:
- *                 type: string
- *                 example: admin@example.com
- *               password:
- *                 type: string
- *                 example: password123
- *     responses:
- *       200:
- *         description: Login successful
- *       401:
- *         description: Invalid credentials
- */
+const { attachTimezoneForSuperAdmin } = require('../../middleware/timezoneMiddleware');
+const authChain = [authenticateSuperAdmin, attachTimezoneForSuperAdmin];
 router.post("/login", validateSuperAdminLogin, login);
 
-/**
- * @swagger
- * /api/v1/super-admin/auth/create:
- *   post:
- *     summary: Create a new super admin
- *     tags: [Super Admin - Auth]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - email
- *               - password
- *               - name
- *             properties:
- *               email:
- *                 type: string
- *                 example: newadmin@example.com
- *               password:
- *                 type: string
- *                 example: strongPassword123
- *               name:
- *                 type: string
- *                 example: John Doe
- *     responses:
- *       201:
- *         description: Super admin created successfully
- *       409:
- *         description: Email already exists
- */
-router.post("/create", authenticateSuperAdmin, validateSuperAdminCreation, createAdmin);
+router.get("/profile", authChain, getProfile);
+router.put("/profile", authChain, validateProfileUpdate, updateProfile);
+router.put("/change-password", authChain, validatePasswordChange, changePassword);
+router.post("/logout", authChain, logout);
 
-/**
- * @swagger
- * /api/v1/super-admin/auth/profile:
- *   get:
- *     summary: Get super admin profile
- *     tags: [Super Admin - Auth]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Profile fetched successfully
- */
-router.get("/profile", authenticateSuperAdmin, getProfile);
 
-/**
- * @swagger
- * /api/v1/super-admin/auth/all:
- *   get:
- *     summary: Get all super admins
- *     tags: [Super Admin - Auth]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: List of super admins
- */
-router.get("/all", authenticateSuperAdmin, getAllAdmins);
+router.get("/roles", authChain, requireSuperAdminPermission('super_admin_roles', 'view'), getSuperAdminRoles);
 
-/**
- * @swagger
- * /api/v1/super-admin/auth/profile:
- *   put:
- *     summary: Update super admin profile
- *     tags: [Super Admin - Auth]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               email:
- *                 type: string
- *                 example: updatedadmin@example.com
- *     responses:
- *       200:
- *         description: Profile updated successfully
- *       409:
- *         description: Email already exists
- */
-router.put("/profile", authenticateSuperAdmin, validateProfileUpdate, updateProfile);
+router.put("/roles/:id/permissions", authChain, requireSuperAdminPermission('super_admin_roles', 'update'), updateSuperAdminRolePermissions);
 
-/**
- * @swagger
- * /api/v1/super-admin/auth/change-password:
- *   put:
- *     summary: Change super admin password
- *     tags: [Super Admin - Auth]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - currentPassword
- *               - newPassword
- *             properties:
- *               currentPassword:
- *                 type: string
- *                 example: oldPassword123
- *               newPassword:
- *                 type: string
- *                 example: newStrongPassword456
- *     responses:
- *       200:
- *         description: Password changed successfully
- *       400:
- *         description: Current password is incorrect
- */
-router.put("/change-password", authenticateSuperAdmin, validatePasswordChange, changePassword);
+router.post("/create", authChain, requireSuperAdminPermission('super_admins', 'create'), validateSuperAdminCreation, createAdmin);
 
-/**
- * @swagger
- * /api/v1/super-admin/auth/logout:
- *   post:
- *     summary: Logout super admin
- *     tags: [Super Admin - Auth]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Logged out successfully
- */
-router.post("/logout", authenticateSuperAdmin, logout);
+router.get("/all", authChain, requireSuperAdminPermission('super_admins', 'view'), getAllAdmins);
 
-router.delete('/delete/:id', authenticateSuperAdmin, deleteAdmin);
-router.put('/toggle-status/:id', authenticateSuperAdmin, toggleAdminStatus);
+
+router.delete('/delete/:id', authChain, requireSuperAdminPermission('super_admins', 'delete'), deleteAdmin);
+
+router.put('/toggle-status/:id', authChain, requireSuperAdminPermission('super_admins', 'update'), toggleAdminStatus);
 
 module.exports = router;

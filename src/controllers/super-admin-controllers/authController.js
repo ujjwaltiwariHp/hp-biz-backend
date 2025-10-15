@@ -5,31 +5,75 @@ const {
   getAllSuperAdmins,
   updateSuperAdminPassword,
   updateSuperAdminProfile,
-  verifyPassword
+  verifyPassword,
+  updateSuperAdminStatus,
+  deleteSuperAdmin,
+  getSuperAdminRoleById
 } = require('../../models/super-admin-models/authModel');
 
 const { generateToken } = require('../../utils/jwtHelper');
 const { errorResponse } = require('../../utils/errorResponse');
+const { successResponse } = require('../../utils/responseFormatter');
+const pool = require('../../config/database');
+
+const safeParsePermissions = (permissionsData) => {
+  if (!permissionsData) return { all: ["view"] };
+
+  if (typeof permissionsData === "object" && !Array.isArray(permissionsData)) {
+    if (permissionsData.length > 0 && typeof permissionsData[0] === "string") {
+      return { all: ["view"] };
+    }
+    return permissionsData;
+  }
+
+  if (typeof permissionsData === "string") {
+    try {
+      return JSON.parse(permissionsData);
+    } catch (e) {
+      return { all: ["view"] };
+    }
+  }
+
+  if (Array.isArray(permissionsData)) {
+    return { all: ["view"] };
+  }
+
+  return { all: ["view"] };
+};
+
+
 
 const login = async (req, res) => {
   try {
     const { email, password } = req.body;
+
+    if (!email || !password) {
+      return errorResponse(res, 400, "Email and password are required");
+    }
 
     const superAdmin = await getSuperAdminByEmail(email);
     if (!superAdmin) {
       return errorResponse(res, 401, "Invalid credentials");
     }
 
-    const trimmedPassword = password.trim();
-    const isValidPassword = await verifyPassword(trimmedPassword, superAdmin.password_hash);
+    const isValidPassword = await verifyPassword(password.trim(), superAdmin.password_hash);
     if (!isValidPassword) {
       return errorResponse(res, 401, "Invalid credentials");
     }
 
+    if (superAdmin.status === 'inactive') {
+      return errorResponse(res, 403, "Account is currently inactive");
+    }
+
+    const superAdminRole = await getSuperAdminRoleById(superAdmin.super_admin_role_id);
+    const permissions = safeParsePermissions(superAdminRole?.permissions);
+
     const token = generateToken({
       id: superAdmin.id,
       email: superAdmin.email,
-      type: 'super_admin'
+      type: 'super_admin',
+      is_super_admin: superAdmin.is_super_admin,
+      permissions: permissions
     });
 
     res.cookie("auth-token", token, {
@@ -40,187 +84,239 @@ const login = async (req, res) => {
       path: "/"
     });
 
-    return res.status(200).json({
-      success: true,
-      message: "Login successful",
+    const superAdminProfile = await getSuperAdminById(superAdmin.id);
+    return successResponse(res, "Login successful", {
       token,
       superAdmin: {
-        id: superAdmin.id,
-        email: superAdmin.email,
-        name: superAdmin.name,
-        created_at: superAdmin.created_at
+        ...superAdminProfile,
+        permissions: permissions
       }
-    });
-
+    }, 200, req);
   } catch (error) {
-    console.error('Login error:', error);
-    return errorResponse(res, 500, "Internal server error");
+    return errorResponse(res, 500, "Failed to perform login operation");
   }
 };
 
 const createAdmin = async (req, res) => {
   try {
-    const { email, password, name } = req.body;
+    const { email, password, name, role_id } = req.body;
+
     const existingAdmin = await getSuperAdminByEmail(email);
     if (existingAdmin) {
       return errorResponse(res, 409, "Email already exists");
     }
-    const newAdmin = await createSuperAdmin({ email, password, name });
-    return res.status(201).json({
-      success: true,
-      message: "Super admin created successfully",
-      superAdmin: {
-        id: newAdmin.id,
-        email: newAdmin.email,
-        name: newAdmin.name,
-        created_at: newAdmin.created_at
-      }
+
+    const selectedRole = await getSuperAdminRoleById(role_id);
+    if (!selectedRole) {
+        return errorResponse(res, 400, "Invalid role ID provided.");
+    }
+
+    const is_super_admin_flag = selectedRole.role_name === 'Super Admin';
+
+    const newAdmin = await createSuperAdmin({
+        email,
+        password,
+        name,
+        super_admin_role_id: role_id,
+        is_super_admin: is_super_admin_flag
     });
+
+    return successResponse(res, "Super Admin created successfully", {
+      superAdmin: newAdmin
+    }, 201, req);
   } catch (error) {
-    return errorResponse(res, 500, "Internal server error");
+    return errorResponse(res, 500, "Failed to create Super Admin");
   }
 };
 
 const getProfile = async (req, res) => {
   try {
-    const superAdmin = req.superAdmin;
-    return res.status(200).json({
-      success: true,
-      superAdmin: {
-        id: superAdmin.id,
-        email: superAdmin.email,
-        name: superAdmin.name,
-        created_at: superAdmin.created_at,
-        updated_at: superAdmin.updated_at
-      }
-    });
+    const superAdmin = await getSuperAdminById(req.superAdmin.id);
+
+    if (!superAdmin) {
+      return errorResponse(res, 404, "Super Admin profile not found");
+    }
+    return successResponse(res, "Profile fetched successfully", {
+      id: superAdmin.id,
+      email: superAdmin.email,
+      name: superAdmin.name,
+      is_super_admin: req.superAdmin.is_super_admin,
+      permissions: req.superAdmin.permissions,
+      created_at: superAdmin.created_at,
+      updated_at: superAdmin.updated_at
+    }, 200, req);
   } catch (error) {
-    return errorResponse(res, 500, "Internal server error");
+    return errorResponse(res, 500, "Failed to fetch profile");
   }
 };
 
 const getAllAdmins = async (req, res) => {
   try {
-    const superAdmins = await getAllSuperAdmins();
-    return res.status(200).json({
-      success: true,
-      superAdmins
-    });
+    const admins = await getAllSuperAdmins();
+    return successResponse(res, "All Super Admins retrieved successfully", {
+      superAdmins: admins
+    }, 200, req);
   } catch (error) {
-    return errorResponse(res, 500, "Internal server error");
+    return errorResponse(res, 500, "Failed to retrieve Super Admins");
   }
 };
 
 const updateProfile = async (req, res) => {
   try {
-    const { email } = req.body;
-    const superAdminId = req.superAdmin.id;
+    const { email, name } = req.body;
+    const adminId = req.superAdmin.id;
 
-    const updatedSuperAdmin = await updateSuperAdminProfile(superAdminId, { email });
-
-    return res.status(200).json({
-      success: true,
-      message: "Profile updated successfully",
-      superAdmin: updatedSuperAdmin
-    });
-
-  } catch (error) {
-    if (error.code === '23505') {
-      return errorResponse(res, 409, "Email already exists");
+    if (email) {
+      const existingAdmin = await getSuperAdminByEmail(email);
+      if (existingAdmin && existingAdmin.id !== adminId) {
+        return errorResponse(res, 409, "Email is already in use by another admin");
+      }
     }
-    return errorResponse(res, 500, "Internal server error");
+
+    if (!email && !name) {
+      return errorResponse(res, 400, "No valid fields provided for update");
+    }
+
+    const updatedAdmin = await updateSuperAdminProfile(adminId, { email, name });
+
+    return successResponse(res, "Profile updated successfully", {
+      superAdmin: updatedAdmin
+    }, 200, req);
+  } catch (error) {
+    if (error.message.includes('unique')) {
+      return errorResponse(res, 409, "Email is already in use by another admin");
+    }
+    return errorResponse(res, 500, "Failed to update profile");
   }
 };
 
 const changePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
-    const superAdminId = req.superAdmin.id;
+    const adminId = req.superAdmin.id;
 
-    const currentSuperAdmin = await getSuperAdminByEmail(req.superAdmin.email);
-
-    const isValidPassword = await verifyPassword(currentPassword, currentSuperAdmin.password_hash);
-    if (!isValidPassword) {
-      return errorResponse(res, 400, "Current password is incorrect");
+    if (!currentPassword || !newPassword) {
+      return errorResponse(res, 400, "Current and new passwords are required");
     }
 
-    await updateSuperAdminPassword(superAdminId, newPassword);
+    const superAdmin = await getSuperAdminByEmail(req.superAdmin.email);
 
-    return res.status(200).json({
-      success: true,
-      message: "Password changed successfully"
-    });
+    if (!superAdmin) {
+      return errorResponse(res, 404, "Super Admin not found");
+    }
 
+    const isValidPassword = await verifyPassword(currentPassword.trim(), superAdmin.password_hash);
+
+    if (!isValidPassword) {
+      return errorResponse(res, 401, "Current password is incorrect");
+    }
+
+    const updatedAdmin = await updateSuperAdminPassword(adminId, newPassword);
+
+    return successResponse(res, "Password changed successfully", {
+      superAdmin: updatedAdmin
+    }, 200, req);
   } catch (error) {
-    return errorResponse(res, 500, "Internal server error");
+    return errorResponse(res, 500, "Failed to change password");
   }
 };
 
 const logout = async (req, res) => {
   try {
-
     res.clearCookie("auth-token", { path: "/" });
 
-    return res.status(200).json({
-      success: true,
-      message: "Logged out successfully"
-    });
+    return successResponse(res, "Logged out successfully", {}, 200, req);
   } catch (error) {
-    return errorResponse(res, 500, "Internal server error");
+    return errorResponse(res, 500, "Failed to log out");
   }
 };
 
 const deleteAdmin = async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = parseInt(req.params.id);
     const currentAdminId = req.superAdmin.id;
 
-    if (parseInt(id) === currentAdminId) {
-      return errorResponse(res, 400, "Cannot delete your own account");
+    if (currentAdminId === id) {
+      return errorResponse(res, 400, "Cannot delete your own active admin account");
+    }
+
+    const adminToDelete = await getSuperAdminById(id);
+    if (!adminToDelete) {
+      return errorResponse(res, 404, "Super Admin not found");
+    }
+
+    const primaryAdminRoleId = 1;
+    if (adminToDelete.super_admin_role_id === primaryAdminRoleId) {
+        return errorResponse(res, 403, "Cannot delete a primary Super Admin account with full privileges.");
     }
 
     const deletedAdmin = await deleteSuperAdmin(id);
     if (!deletedAdmin) {
-      return errorResponse(res, 404, "Admin not found");
+      return errorResponse(res, 404, "Super Admin not found");
     }
 
-    return res.status(200).json({
-      success: true,
-      message: "Admin deleted successfully",
-      deletedAdmin
-    });
+    return successResponse(res, `Super Admin ${deletedAdmin.email} deleted successfully`, {}, 200, req);
   } catch (error) {
-    return errorResponse(res, 500, "Internal server error");
+    return errorResponse(res, 500, "Failed to delete Super Admin");
   }
 };
 
 const toggleAdminStatus = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { status } = req.body;
-    const currentAdminId = req.superAdmin.id;
+    const id = parseInt(req.params.id);
 
-    if (parseInt(id) === currentAdminId) {
-      return errorResponse(res, 400, "Cannot change your own status");
+    if (req.superAdmin.id === id) {
+      return errorResponse(res, 400, "Cannot change the status of your own active admin account");
     }
 
-    if (!['active', 'inactive'].includes(status)) {
-      return errorResponse(res, 400, "Invalid status. Must be 'active' or 'inactive'");
+    const currentAdmin = await getSuperAdminById(id);
+    if (!currentAdmin) {
+      return errorResponse(res, 404, "Super Admin not found");
     }
 
-    const updatedAdmin = await updateSuperAdminStatus(id, status);
-    if (!updatedAdmin) {
-      return errorResponse(res, 404, "Admin not found");
-    }
+    const newStatus = currentAdmin.status === 'active' ? 'inactive' : 'active';
+    const updatedAdmin = await updateSuperAdminStatus(id, newStatus);
 
-    return res.status(200).json({
-      success: true,
-      message: `Admin status updated to ${status}`,
-      admin: updatedAdmin
-    });
+    return successResponse(res, `Super Admin status updated to ${newStatus}`, {
+      superAdmin: updatedAdmin
+    }, 200, req);
   } catch (error) {
-    return errorResponse(res, 500, "Internal server error");
+    return errorResponse(res, 500, "Failed to toggle Super Admin status");
   }
+};
+
+const getSuperAdminRoles = async (req, res) => {
+    try {
+        const roles = await pool.query(`SELECT id, role_name, description, permissions FROM super_admin_roles`);
+        return successResponse(res, "Super Admin roles fetched successfully", { roles: roles.rows }, 200, req);
+    } catch (error) {
+        return errorResponse(res, 500, "Failed to fetch roles.");
+    }
+};
+
+const updateSuperAdminRolePermissions = async (req, res) => {
+    try {
+        const roleId = req.params.id;
+        const { permissions } = req.body;
+
+        if (!permissions || typeof permissions !== 'object') {
+             return errorResponse(res, 400, "Valid permissions object is required.");
+        }
+
+        const result = await pool.query(
+            `UPDATE super_admin_roles SET permissions = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id, role_name, permissions`,
+            [JSON.stringify(permissions), roleId]
+        );
+
+        if (result.rowCount === 0) {
+            return errorResponse(res, 404, "Role not found.");
+        }
+
+        return successResponse(res, "Role permissions updated successfully", { role: result.rows[0] }, 200, req);
+
+    } catch (error) {
+        return errorResponse(res, 500, "Failed to update role permissions.");
+    }
 };
 
 module.exports = {
@@ -230,7 +326,9 @@ module.exports = {
   getAllAdmins,
   updateProfile,
   changePassword,
+  logout,
   deleteAdmin,
   toggleAdminStatus,
-  logout
+  getSuperAdminRoles,
+  updateSuperAdminRolePermissions
 };
