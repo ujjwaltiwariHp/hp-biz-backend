@@ -17,30 +17,29 @@ const { successResponse } = require('../../utils/responseFormatter');
 const pool = require('../../config/database');
 
 const safeParsePermissions = (permissionsData) => {
-  if (!permissionsData) return { all: ["view"] };
+    if (!permissionsData) return { "all": ["view"] };
 
-  if (typeof permissionsData === "object" && !Array.isArray(permissionsData)) {
-    if (permissionsData.length > 0 && typeof permissionsData[0] === "string") {
-      return { all: ["view"] };
+    if (typeof permissionsData === 'object' && !Array.isArray(permissionsData)) {
+        if (permissionsData.length > 0 && typeof permissionsData[0] === 'string') {
+            return { "all": ["view"] };
+        }
+        return permissionsData;
     }
-    return permissionsData;
-  }
 
-  if (typeof permissionsData === "string") {
-    try {
-      return JSON.parse(permissionsData);
-    } catch (e) {
-      return { all: ["view"] };
+    if (typeof permissionsData === 'string') {
+        try {
+            return JSON.parse(permissionsData);
+        } catch (e) {
+            return { "all": ["view"] };
+        }
     }
-  }
 
-  if (Array.isArray(permissionsData)) {
-    return { all: ["view"] };
-  }
+    if (Array.isArray(permissionsData)) {
+        return { "all": ["view"] };
+    }
 
-  return { all: ["view"] };
+    return { "all": ["view"] };
 };
-
 
 
 const login = async (req, res) => {
@@ -93,7 +92,7 @@ const login = async (req, res) => {
       }
     }, 200, req);
   } catch (error) {
-    return errorResponse(res, 500, "Failed to perform login operation");
+    return errorResponse(res, 500, "Internal server error during login operation");
   }
 };
 
@@ -136,6 +135,7 @@ const getProfile = async (req, res) => {
     if (!superAdmin) {
       return errorResponse(res, 404, "Super Admin profile not found");
     }
+
     return successResponse(res, "Profile fetched successfully", {
       id: superAdmin.id,
       email: superAdmin.email,
