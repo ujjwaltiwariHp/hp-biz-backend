@@ -16,13 +16,18 @@ const authenticateSuperAdmin = async (req, res, next) => {
       return errorResponse(res, 401, "Access denied. Invalid token");
     }
 
-    const superAdmin = await getSuperAdminById(decoded.id);
-    if (!superAdmin) {
+    const superAdminProfile = await getSuperAdminById(decoded.id);
+    if (!superAdminProfile) {
       return errorResponse(res, 401, "Access denied. Super admin not found");
     }
-
-    req.superAdmin = superAdmin;
+    req.superAdmin = {
+        ...superAdminProfile,
+        id: decoded.id,
+        is_super_admin: decoded.is_super_admin,
+        permissions: decoded.permissions,
+    };
     req.token = token;
+
     next();
   } catch (error) {
     if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
