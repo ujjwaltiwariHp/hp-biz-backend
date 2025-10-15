@@ -1,5 +1,5 @@
 const Notifications = require("../models/notificationsModel");
-const { successResponse } = require("../utils/successResponse");
+const { successResponse } = require("../utils/responseFormatter");
 const { errorResponse } = require("../utils/errorResponse");
 
 const getNotifications = async (req, res) => {
@@ -15,7 +15,7 @@ const getNotifications = async (req, res) => {
     const offset = parseInt(req.query.offset) || 0;
 
     const notifications = await Notifications.getNotifications(staffId, companyId, limit, offset);
-    return successResponse(res, "Notifications fetched successfully", notifications);
+    return successResponse(res, "Notifications fetched successfully", notifications, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -35,7 +35,7 @@ const getNotificationById = async (req, res) => {
       return errorResponse(res, 404, "Notification not found");
     }
 
-    return successResponse(res, "Notification details fetched", notification);
+    return successResponse(res, "Notification details fetched", notification, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -55,7 +55,7 @@ const markNotificationAsRead = async (req, res) => {
       return errorResponse(res, 404, "Notification not found");
     }
 
-    return successResponse(res, "Notification marked as read", notification);
+    return successResponse(res, "Notification marked as read", notification, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -71,7 +71,7 @@ const markAllNotificationsAsRead = async (req, res) => {
     }
 
     const count = await Notifications.markAllNotificationsAsRead(staffId, companyId);
-    return successResponse(res, "All notifications marked as read", { updated_count: count });
+    return successResponse(res, "All notifications marked as read", { updated_count: count }, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -87,7 +87,7 @@ const getUnreadCount = async (req, res) => {
     }
 
     const count = await Notifications.getUnreadNotificationCount(staffId, companyId);
-    return successResponse(res, "Unread notification count fetched", { unread_count: count });
+    return successResponse(res, "Unread notification count fetched", { unread_count: count }, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -106,7 +106,7 @@ const getNotificationHistory = async (req, res) => {
     const offset = parseInt(req.query.offset) || 0;
 
     const history = await Notifications.getNotificationHistory(staffId, companyId, limit, offset);
-    return successResponse(res, "Notification history fetched successfully", history);
+    return successResponse(res, "Notification history fetched successfully", history, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -128,7 +128,7 @@ const updateNotificationSettings = async (req, res) => {
     }
 
     const settings = await Notifications.updateNotificationSettings(staffId, companyId, { email_notifications });
-    return successResponse(res, "Notification settings updated successfully", settings);
+    return successResponse(res, "Notification settings updated successfully", settings, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -144,7 +144,7 @@ const getNotificationSettings = async (req, res) => {
     }
 
     const settings = await Notifications.getNotificationSettings(staffId, companyId);
-    return successResponse(res, "Notification settings fetched successfully", settings);
+    return successResponse(res, "Notification settings fetched successfully", settings, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -164,7 +164,7 @@ const deleteNotification = async (req, res) => {
       return errorResponse(res, 404, "Notification not found");
     }
 
-    return successResponse(res, "Notification deleted successfully");
+    return successResponse(res, "Notification deleted successfully", {}, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }

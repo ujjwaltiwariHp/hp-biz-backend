@@ -11,7 +11,7 @@ const generateLeads = (count) => {
 
   const STATUS_ID = 3;
   const LEAD_SOURCE_ID = 10;
-  const ASSIGNED_TO_ID = 7;
+  const ASSIGNED_TO_ID = 42;
 
   for (let i = 1; i <= count; i++) {
     const firstName = firstNames[i % firstNames.length];

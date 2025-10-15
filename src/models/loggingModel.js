@@ -28,7 +28,7 @@ const logUserActivity = async (activityData) => {
         staff_id, company_id, action_type, resource_type,
         resource_id, action_details, ip_address, created_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7::inet, CURRENT_TIMESTAMP)
-      RETURNING id, created_at
+      RETURNING id, TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as created_at
     `;
 
     const values = [
@@ -44,7 +44,6 @@ const logUserActivity = async (activityData) => {
     const result = await pool.query(query, values);
     return result.rows[0];
   } catch (error) {
-    console.error('Error logging user activity:', error);
     return null;
   }
 };
@@ -63,7 +62,7 @@ const logSystemEvent = async (logData) => {
       INSERT INTO system_logs (
         company_id, staff_id, log_level, log_category, message, created_at
       ) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-      RETURNING id, created_at
+      RETURNING id, TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as created_at
     `;
 
     const values = [
@@ -77,7 +76,6 @@ const logSystemEvent = async (logData) => {
     const result = await pool.query(query, values);
     return result.rows[0];
   } catch (error) {
-    console.error('Error logging system event:', error);
     return null;
   }
 };
@@ -104,7 +102,7 @@ const getUserActivityLogs = async (filters = {}) => {
       ual.resource_id,
       ual.action_details,
       HOST(ual.ip_address) as ip_address,
-      ual.created_at,
+      TO_CHAR(ual.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as created_at,
 
       CASE
         WHEN ual.staff_id IS NULL AND ual.company_id IS NOT NULL THEN COALESCE(c.admin_name, 'Company Admin')
@@ -186,7 +184,6 @@ const getUserActivityLogs = async (filters = {}) => {
         ip_address: normalizeIPForDisplay(log.ip_address)
     }));
   } catch (error) {
-    console.error('Error fetching user activity logs:', error);
     throw new Error('Error fetching user activity logs: ' + error.message);
   }
 };
@@ -211,7 +208,7 @@ const getSystemLogs = async (filters = {}) => {
       sl.log_level,
       sl.log_category,
       sl.message,
-      sl.created_at,
+      TO_CHAR(sl.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as created_at,
       COALESCE(c.admin_name, 'System') as first_name,
       '' as last_name,
       COALESCE(c.admin_email, 'System') as email,
@@ -272,12 +269,11 @@ const getSystemLogs = async (filters = {}) => {
       const rawIp = ipMatch ? ipMatch[1] : null;
       return {
         ...log,
-        ip_address: normalizeIPForDisplay(rawIp) // FIX: Use the normalization function here
+        ip_address: normalizeIPForDisplay(rawIp)
       };
     });
     return logsWithIP;
   } catch (error) {
-    console.error('Error fetching system logs:', error);
     throw new Error('Error fetching system logs: ' + error.message);
   }
 };
@@ -341,7 +337,6 @@ const getTotalSystemLogsCount = async (filters = {}) => {
     const result = await pool.query(query, values);
     return parseInt(result.rows[0].total);
   } catch (error) {
-    console.error('Error getting total system logs count:', error);
     throw new Error('Error getting total system logs count: ' + error.message);
   }
 };
@@ -367,7 +362,6 @@ const cleanOldLogs = async (daysToKeep = 90) => {
       system_logs_deleted: systemResult.rowCount
     };
   } catch (error) {
-    console.error('Error cleaning old logs:', error);
     throw new Error('Error cleaning old logs: ' + error.message);
   }
 };
@@ -391,7 +385,6 @@ const getActivitySummary = async (company_id, days = 7) => {
     const result = await pool.query(query, [company_id, startDate]);
     return result.rows;
   } catch (error) {
-    console.error('Error getting activity summary:', error);
     throw new Error('Error getting activity summary: ' + error.message);
   }
 };
@@ -459,7 +452,6 @@ const getTotalLogsCount = async (filters = {}) => {
     const result = await pool.query(query, values);
     return parseInt(result.rows[0].total);
   } catch (error) {
-    console.error('Error getting total logs count:', error);
     throw new Error('Error getting total logs count: ' + error.message);
   }
 };
@@ -476,7 +468,6 @@ const getActionTypes = async (company_id) => {
     const result = await pool.query(query, [company_id]);
     return result.rows.map(row => row.action_type);
   } catch (error) {
-    console.error('Error getting action types:', error);
     return [];
   }
 };
@@ -493,7 +484,6 @@ const getResourceTypes = async (company_id) => {
     const result = await pool.query(query, [company_id]);
     return result.rows.map(row => row.resource_type);
   } catch (error) {
-    console.error('Error getting resource types:', error);
     return [];
   }
 };

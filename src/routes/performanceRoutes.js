@@ -1,5 +1,6 @@
 const express = require('express');
 const { globalLogActivity } = require('../middleware/loggingMiddleware');
+const { attachTimezone } = require('../middleware/timezoneMiddleware');
 const {
   getStaffPerformance,
   getAllStaffPerformance,
@@ -17,20 +18,20 @@ const router = express.Router();
 
 router.use(globalLogActivity);
 
-router.get('/dashboard', authenticateAny, requirePermission('view_reports'), getPerformanceDashboard);
+router.get('/dashboard', authenticateAny, attachTimezone, requirePermission('view_reports'), getPerformanceDashboard);
 
-router.get('/staff', authenticateAny, getAllStaffPerformance);
+router.get('/staff', authenticateAny, attachTimezone, getAllStaffPerformance);
 
-router.get('/staff/:staffId', authenticateAny, getStaffPerformance);
+router.get('/staff/:staffId', authenticateAny, attachTimezone, getStaffPerformance);
 
-router.get('/staff/:staffId/timeline', authenticateAny, getStaffTimeline);
+router.get('/staff/:staffId/timeline', authenticateAny, attachTimezone, getStaffTimeline);
 
-router.get('/company', authenticateAny, requirePermission('view_reports'), getCompanyPerformance);
+router.get('/company', authenticateAny, attachTimezone, requirePermission('view_reports'), getCompanyPerformance);
 
-router.get('/reports/lead-conversion', authenticateAny, requirePermission('view_reports'), getLeadConversionReport);
+router.get('/reports/lead-conversion', authenticateAny, attachTimezone, requirePermission('view_reports'), getLeadConversionReport);
 
-router.get('/reports/source-performance', authenticateAny, requirePermission('view_reports'), getSourcePerformanceReport);
+router.get('/reports/source-performance', authenticateAny, attachTimezone, requirePermission('view_reports'), getSourcePerformanceReport);
 
-router.post('/reports/custom', authenticateAny, requirePermission('view_reports'), generateCustomReport);
+router.post('/reports/custom', authenticateAny, attachTimezone, requirePermission('view_reports'), generateCustomReport);
 
 module.exports = router;
