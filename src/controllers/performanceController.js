@@ -1,14 +1,16 @@
 const Performance = require("../models/performanceModel");
-const { successResponse } = require("../utils/successResponse");
+const { successResponse } = require("../utils/responseFormatter");
 const { errorResponse } = require("../utils/errorResponse");
+const { parseAndConvertToUTC } = require('../utils/timezoneHelper');
 
 const getStaffPerformance = async (req, res) => {
   try {
     const companyId = req.company.id;
     const staffId = parseInt(req.params.staffId);
     const periodType = req.query.period_type || 'monthly';
-    const periodStart = req.query.period_start || null;
-    const periodEnd = req.query.period_end || null;
+
+    let periodStart = req.query.period_start ? parseAndConvertToUTC(req.query.period_start, req.timezone) : null;
+    let periodEnd = req.query.period_end ? parseAndConvertToUTC(req.query.period_end, req.timezone) : null;
 
     if (!staffId || isNaN(staffId)) {
       return errorResponse(res, 400, "Valid staff ID is required");
@@ -32,7 +34,7 @@ const getStaffPerformance = async (req, res) => {
       timeline: timeline || []
     };
 
-    return successResponse(res, "Staff performance data fetched successfully", responseData);
+    return successResponse(res, "Staff performance data fetched successfully", responseData, 200, req);
   } catch (err) {
     if (err.message === "Staff member not found") {
       return errorResponse(res, 404, err.message);
@@ -45,14 +47,15 @@ const getAllStaffPerformance = async (req, res) => {
   try {
     const companyId = req.company.id;
     const periodType = req.query.period_type || 'monthly';
-    const periodStart = req.query.period_start || null;
-    const periodEnd = req.query.period_end || null;
+
+    let periodStart = req.query.period_start ? parseAndConvertToUTC(req.query.period_start, req.timezone) : null;
+    let periodEnd = req.query.period_end ? parseAndConvertToUTC(req.query.period_end, req.timezone) : null;
 
     const staffPerformance = await Performance.getAllStaffPerformance(
       companyId, periodType, periodStart, periodEnd
     );
 
-    return successResponse(res, "Staff performance list fetched successfully", staffPerformance);
+    return successResponse(res, "Staff performance list fetched successfully", staffPerformance, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -78,7 +81,7 @@ const getPerformanceDashboard = async (req, res) => {
       }
     };
 
-    return successResponse(res, "Performance dashboard data fetched successfully", responseData);
+    return successResponse(res, "Performance dashboard data fetched successfully", responseData, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -88,14 +91,15 @@ const getCompanyPerformance = async (req, res) => {
   try {
     const companyId = req.company.id;
     const periodType = req.query.period_type || 'monthly';
-    const periodStart = req.query.period_start || null;
-    const periodEnd = req.query.period_end || null;
+
+    let periodStart = req.query.period_start ? parseAndConvertToUTC(req.query.period_start, req.timezone) : null;
+    let periodEnd = req.query.period_end ? parseAndConvertToUTC(req.query.period_end, req.timezone) : null;
 
     const performance = await Performance.getCompanyPerformanceMetrics(
       companyId, periodType, periodStart, periodEnd
     );
 
-    return successResponse(res, "Company performance metrics fetched successfully", performance);
+    return successResponse(res, "Company performance metrics fetched successfully", performance, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -104,12 +108,13 @@ const getCompanyPerformance = async (req, res) => {
 const getLeadConversionReport = async (req, res) => {
   try {
     const companyId = req.company.id;
-    const periodStart = req.query.period_start || null;
-    const periodEnd = req.query.period_end || null;
+
+    let periodStart = req.query.period_start ? parseAndConvertToUTC(req.query.period_start, req.timezone) : null;
+    let periodEnd = req.query.period_end ? parseAndConvertToUTC(req.query.period_end, req.timezone) : null;
 
     const report = await Performance.getLeadConversionReport(companyId, periodStart, periodEnd);
 
-    return successResponse(res, "Lead conversion report generated successfully", report);
+    return successResponse(res, "Lead conversion report generated successfully", report, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -118,12 +123,13 @@ const getLeadConversionReport = async (req, res) => {
 const getSourcePerformanceReport = async (req, res) => {
   try {
     const companyId = req.company.id;
-    const periodStart = req.query.period_start || null;
-    const periodEnd = req.query.period_end || null;
+
+    let periodStart = req.query.period_start ? parseAndConvertToUTC(req.query.period_start, req.timezone) : null;
+    let periodEnd = req.query.period_end ? parseAndConvertToUTC(req.query.period_end, req.timezone) : null;
 
     const report = await Performance.getSourcePerformanceReport(companyId, periodStart, periodEnd);
 
-    return successResponse(res, "Source performance report generated successfully", report);
+    return successResponse(res, "Source performance report generated successfully", report, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -148,7 +154,7 @@ const getStaffTimeline = async (req, res) => {
 
     const timeline = await Performance.getStaffTimeline(staffId, companyId, days);
 
-    return successResponse(res, "Staff timeline fetched successfully", timeline);
+    return successResponse(res, "Staff timeline fetched successfully", timeline, 200, req);
   } catch (err) {
     if (err.message === "Staff member not found") {
       return errorResponse(res, 404, err.message);
@@ -167,14 +173,17 @@ const generateCustomReport = async (req, res) => {
 
     const {
       report_type,
-      period_start,
-      period_end,
+      period_start: raw_period_start,
+      period_end: raw_period_end,
       staff_ids
     } = req.body;
 
     if (!report_type) {
       return errorResponse(res, 400, "Report type is required");
     }
+
+    let period_start = raw_period_start ? parseAndConvertToUTC(raw_period_start, req.timezone) : null;
+    let period_end = raw_period_end ? parseAndConvertToUTC(raw_period_end, req.timezone) : null;
 
     let reportData = {};
 
@@ -237,9 +246,9 @@ const generateCustomReport = async (req, res) => {
     return successResponse(res, "Custom report generated successfully", {
       report_type,
       generated_at: new Date(),
-      period: { start: period_start, end: period_end },
+      period: { start: raw_period_start, end: raw_period_end },
       data: reportData
-    });
+    }, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }

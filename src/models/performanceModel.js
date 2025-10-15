@@ -3,33 +3,18 @@ const pool = require("../config/database");
 const getStaffPerformanceMetrics = async (staffId, companyId, periodType = 'monthly', periodStart = null, periodEnd = null) => {
   let dateFilter = '';
   const params = [staffId, companyId];
+  let paramIndex = 3;
 
-  if (periodStart && periodEnd) {
-    dateFilter = ` AND l.created_at >= $3 AND l.created_at <= $4`;
-    params.push(periodStart, periodEnd);
-  } else {
-    const now = new Date();
-    let startDate;
+  if (periodStart) {
+    dateFilter += ` AND l.created_at >= $${paramIndex}`;
+    params.push(periodStart);
+    paramIndex++;
+  }
 
-    switch (periodType) {
-      case 'daily':
-        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        break;
-      case 'weekly':
-        startDate = new Date(now.setDate(now.getDate() - 7));
-        break;
-      case 'monthly':
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        break;
-      case 'yearly':
-        startDate = new Date(now.getFullYear(), 0, 1);
-        break;
-      default:
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-    }
-
-    dateFilter = ` AND l.created_at >= $3`;
-    params.push(startDate);
+  if (periodEnd) {
+    dateFilter += ` AND l.created_at <= $${paramIndex}`;
+    params.push(periodEnd);
+    paramIndex++;
   }
 
   const staffResult = await pool.query(
@@ -124,33 +109,18 @@ const getStaffPerformanceMetrics = async (staffId, companyId, periodType = 'mont
 const getAllStaffPerformance = async (companyId, periodType = 'monthly', periodStart = null, periodEnd = null) => {
   let dateFilter = '';
   const params = [companyId];
+  let paramIndex = 2;
 
-  if (periodStart && periodEnd) {
-    dateFilter = ` AND l.created_at >= $2 AND l.created_at <= $3`;
-    params.push(periodStart, periodEnd);
-  } else {
-    const now = new Date();
-    let startDate;
+  if (periodStart) {
+    dateFilter += ` AND l.created_at >= $${paramIndex}`;
+    params.push(periodStart);
+    paramIndex++;
+  }
 
-    switch (periodType) {
-      case 'daily':
-        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        break;
-      case 'weekly':
-        startDate = new Date(now.setDate(now.getDate() - 7));
-        break;
-      case 'monthly':
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        break;
-      case 'yearly':
-        startDate = new Date(now.getFullYear(), 0, 1);
-        break;
-      default:
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-    }
-
-    dateFilter = ` AND l.created_at >= $2`;
-    params.push(startDate);
+  if (periodEnd) {
+    dateFilter += ` AND l.created_at <= $${paramIndex}`;
+    params.push(periodEnd);
+    paramIndex++;
   }
 
   const result = await pool.query(
@@ -304,7 +274,13 @@ const getStaffTimeline = async (staffId, companyId, days = 30) => {
 const getKpiDashboardData = async (companyId, periodType = 'monthly') => {
   let dateFilter = '';
   const params = [companyId];
+  let paramIndex = 2;
 
+  // The logic to calculate start/end date based on periodType needs to be
+  // in the controller to apply timezone. Since it's not there for dashboard,
+  // we default to a basic safe period here, but ideally this logic moves.
+  // For now, we keep the original logic for non-explicit dates in the model,
+  // as the controller is not passing start/end for the dashboard explicitly.
   const now = new Date();
   let startDate;
 
@@ -325,7 +301,7 @@ const getKpiDashboardData = async (companyId, periodType = 'monthly') => {
       startDate = new Date(now.getFullYear(), now.getMonth(), 1);
   }
 
-  dateFilter = ` AND l.created_at >= $2`;
+  dateFilter = ` AND l.created_at >= $${paramIndex}`;
   params.push(startDate);
 
   const staffPerformance = await pool.query(
@@ -407,33 +383,18 @@ const getKpiDashboardData = async (companyId, periodType = 'monthly') => {
 const getCompanyPerformanceMetrics = async (companyId, periodType = 'monthly', periodStart = null, periodEnd = null) => {
   let dateFilter = '';
   const params = [companyId];
+  let paramIndex = 2;
 
-  if (periodStart && periodEnd) {
-    dateFilter = ` AND l.created_at >= $2 AND l.created_at <= $3`;
-    params.push(periodStart, periodEnd);
-  } else {
-    const now = new Date();
-    let startDate;
+  if (periodStart) {
+    dateFilter += ` AND l.created_at >= $${paramIndex}`;
+    params.push(periodStart);
+    paramIndex++;
+  }
 
-    switch (periodType) {
-      case 'daily':
-        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        break;
-      case 'weekly':
-        startDate = new Date(now.setDate(now.getDate() - 7));
-        break;
-      case 'monthly':
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        break;
-      case 'yearly':
-        startDate = new Date(now.getFullYear(), 0, 1);
-        break;
-      default:
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-    }
-
-    dateFilter = ` AND l.created_at >= $2`;
-    params.push(startDate);
+  if (periodEnd) {
+    dateFilter += ` AND l.created_at <= $${paramIndex}`;
+    params.push(periodEnd);
+    paramIndex++;
   }
 
   const result = await pool.query(
@@ -491,6 +452,7 @@ const getCompanyPerformanceMetrics = async (companyId, periodType = 'monthly', p
   const sourcePerformanceResult = await pool.query(
     `SELECT
        lso.source_name,
+       lso.source_type,
        COUNT(l.*) as leads_count,
        COUNT(CASE
          WHEN (
@@ -510,7 +472,7 @@ const getCompanyPerformanceMetrics = async (companyId, periodType = 'monthly', p
      LEFT JOIN lead_sources lso ON l.lead_source_id = lso.id
      LEFT JOIN lead_statuses ls ON l.status_id = ls.id
      WHERE l.company_id = $1 ${dateFilter}
-     GROUP BY lso.id, lso.source_name
+     GROUP BY lso.id, lso.source_name, lso.source_type
      ORDER BY leads_count DESC`,
     params
   );
@@ -524,10 +486,18 @@ const getCompanyPerformanceMetrics = async (companyId, periodType = 'monthly', p
 const getLeadConversionReport = async (companyId, periodStart = null, periodEnd = null) => {
   let dateFilter = '';
   const params = [companyId];
+  let paramIndex = 2;
 
-  if (periodStart && periodEnd) {
-    dateFilter = ` AND l.created_at >= $2 AND l.created_at <= $3`;
-    params.push(periodStart, periodEnd);
+  if (periodStart) {
+    dateFilter += ` AND l.created_at >= $${paramIndex}`;
+    params.push(periodStart);
+    paramIndex++;
+  }
+
+  if (periodEnd) {
+    dateFilter += ` AND l.created_at <= $${paramIndex}`;
+    params.push(periodEnd);
+    paramIndex++;
   }
 
   const result = await pool.query(
@@ -558,10 +528,18 @@ const getLeadConversionReport = async (companyId, periodStart = null, periodEnd 
 const getSourcePerformanceReport = async (companyId, periodStart = null, periodEnd = null) => {
   let dateFilter = '';
   const params = [companyId];
+  let paramIndex = 2;
 
-  if (periodStart && periodEnd) {
-    dateFilter = ` AND l.created_at >= $2 AND l.created_at <= $3`;
-    params.push(periodStart, periodEnd);
+  if (periodStart) {
+    dateFilter += ` AND l.created_at >= $${paramIndex}`;
+    params.push(periodStart);
+    paramIndex++;
+  }
+
+  if (periodEnd) {
+    dateFilter += ` AND l.created_at <= $${paramIndex}`;
+    params.push(periodEnd);
+    paramIndex++;
   }
 
   const result = await pool.query(

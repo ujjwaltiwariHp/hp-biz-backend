@@ -13,7 +13,8 @@ const createNotification = async (data) => {
 
   const result = await pool.query(
     `INSERT INTO notifications (company_id, staff_id, title, message, type, related_lead_id, priority)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, company_id, staff_id, title, message, type, related_lead_id, is_read, priority,
+     TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as created_at`,
     [company_id, staff_id, title, message, type, related_lead_id, priority]
   );
   return result.rows[0];
@@ -22,7 +23,9 @@ const createNotification = async (data) => {
 const getNotifications = async (staffId, companyId, limit = 50, offset = 0) => {
   const result = await pool.query(
     `SELECT n.id, n.title, n.message, n.type, n.related_lead_id, n.is_read,
-            n.priority, n.created_at, n.read_at,
+            n.priority,
+            TO_CHAR(n.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as created_at,
+            TO_CHAR(n.read_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as read_at,
             l.first_name as lead_first_name, l.last_name as lead_last_name
      FROM notifications n
      LEFT JOIN leads l ON n.related_lead_id = l.id
@@ -37,7 +40,9 @@ const getNotifications = async (staffId, companyId, limit = 50, offset = 0) => {
 const getNotificationById = async (id, staffId, companyId) => {
   const result = await pool.query(
     `SELECT n.id, n.title, n.message, n.type, n.related_lead_id, n.is_read,
-            n.priority, n.created_at, n.read_at,
+            n.priority,
+            TO_CHAR(n.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as created_at,
+            TO_CHAR(n.read_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as read_at,
             l.first_name as lead_first_name, l.last_name as lead_last_name
      FROM notifications n
      LEFT JOIN leads l ON n.related_lead_id = l.id
@@ -50,7 +55,10 @@ const getNotificationById = async (id, staffId, companyId) => {
 const markNotificationAsRead = async (id, staffId, companyId) => {
   const result = await pool.query(
     `UPDATE notifications SET is_read = TRUE, read_at = CURRENT_TIMESTAMP
-     WHERE id = $1 AND staff_id = $2 AND company_id = $3 RETURNING *`,
+     WHERE id = $1 AND staff_id = $2 AND company_id = $3
+     RETURNING id, title, message, type, is_read, priority,
+     TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as created_at,
+     TO_CHAR(read_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as read_at`,
     [id, staffId, companyId]
   );
   return result.rows[0];
@@ -78,7 +86,9 @@ const getUnreadNotificationCount = async (staffId, companyId) => {
 const getNotificationHistory = async (staffId, companyId, limit = 100, offset = 0) => {
   const result = await pool.query(
     `SELECT n.id, n.title, n.message, n.type, n.related_lead_id, n.is_read,
-            n.priority, n.created_at, n.read_at,
+            n.priority,
+            TO_CHAR(n.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as created_at,
+            TO_CHAR(n.read_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as read_at,
             l.first_name as lead_first_name, l.last_name as lead_last_name
      FROM notifications n
      LEFT JOIN leads l ON n.related_lead_id = l.id

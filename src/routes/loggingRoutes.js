@@ -9,17 +9,20 @@ const {
   cleanupOldLogs
 } = require("../controllers/loggingController");
 const { authenticateAny, adminOnly, requirePermission } = require("../middleware/auth");
+const { attachTimezone } = require('../middleware/timezoneMiddleware');
 
-router.get("/activity", authenticateAny, getUserLogs);
+const timezoneChain = [authenticateAny, attachTimezone];
 
-router.get("/system", authenticateAny, adminOnly, getSystemEventLogs);
+router.get("/activity", ...timezoneChain, getUserLogs);
 
-router.get("/dashboard", authenticateAny, getActivityDashboard);
+router.get("/system", authenticateAny, adminOnly, attachTimezone, getSystemEventLogs);
 
-router.get("/staff/activity/:staff_id", authenticateAny, requirePermission('staff_view'), getStaffActivitySummary);
+router.get("/dashboard", ...timezoneChain, getActivityDashboard);
 
-router.get("/export", authenticateAny, adminOnly, exportLogs);
+router.get("/staff/activity/:staff_id", authenticateAny, attachTimezone, requirePermission('staff_view'), getStaffActivitySummary);
 
-router.post("/cleanup", authenticateAny, adminOnly, cleanupOldLogs);
+router.get("/export", authenticateAny, adminOnly, attachTimezone, exportLogs);
+
+router.post("/cleanup", authenticateAny, adminOnly, attachTimezone, cleanupOldLogs);
 
 module.exports = router;
