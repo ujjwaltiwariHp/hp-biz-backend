@@ -74,11 +74,7 @@ const login = async (req, res) => {
       if (superAdminRole) {
         permissions = safeParsePermissions(superAdminRole.permissions);
 
-      } else {
-
       }
-    } else {
-
     }
 
 
