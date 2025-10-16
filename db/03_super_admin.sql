@@ -46,3 +46,10 @@ SELECT sa.id, sa.email, sa.is_super_admin, sar.role_name, sar.permissions
 FROM super_admins sa
 LEFT JOIN super_admin_roles sar ON sa.super_admin_role_id = sar.id
 WHERE sa.email = 'superadmin@hpbiz.com';
+
+ALTER TABLE super_admins
+ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active';
+
+
+CREATE INDEX IF NOT EXISTS idx_super_admins_status
+ON super_admins(status);
