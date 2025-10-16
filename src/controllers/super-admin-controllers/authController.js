@@ -44,6 +44,7 @@ const safeParsePermissions = (permissionsData) => {
 
 const login = async (req, res) => {
   try {
+
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -51,11 +52,14 @@ const login = async (req, res) => {
     }
 
     const superAdmin = await getSuperAdminByEmail(email);
+
     if (!superAdmin) {
       return errorResponse(res, 401, "Invalid credentials");
     }
 
-    const isValidPassword = await verifyPassword(password.trim(), superAdmin.password_hash);
+    const trimmedPassword = password.trim();
+    const isValidPassword = await verifyPassword(trimmedPassword, superAdmin.password_hash);
+
     if (!isValidPassword) {
       return errorResponse(res, 401, "Invalid credentials");
     }
@@ -64,19 +68,30 @@ const login = async (req, res) => {
       return errorResponse(res, 403, "Account is currently inactive");
     }
 
-    const superAdminRole = await getSuperAdminRoleById(superAdmin.super_admin_role_id);
-    const permissions = safeParsePermissions(superAdminRole?.permissions);
+    let permissions = { "all": ["view"] };
+    if (superAdmin.super_admin_role_id) {
+      const superAdminRole = await getSuperAdminRoleById(superAdmin.super_admin_role_id);
+      if (superAdminRole) {
+        permissions = safeParsePermissions(superAdminRole.permissions);
+
+      } else {
+
+      }
+    } else {
+
+    }
+
 
     const token = generateToken({
       id: superAdmin.id,
       email: superAdmin.email,
       type: 'super_admin',
-      is_super_admin: superAdmin.is_super_admin,
+      is_super_admin: superAdmin.is_super_admin || false,
       permissions: permissions
     });
 
     res.cookie("auth-token", token, {
-      httpOnly: false,
+      httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
       maxAge: 7 * 24 * 60 * 60 * 1000,
@@ -84,13 +99,23 @@ const login = async (req, res) => {
     });
 
     const superAdminProfile = await getSuperAdminById(superAdmin.id);
-    return successResponse(res, "Login successful", {
-      token,
-      superAdmin: {
-        ...superAdminProfile,
-        permissions: permissions
+
+    return res.status(200).json({
+      success: true,
+      message: "Login successful",
+      data: {
+        token,
+        superAdmin: {
+          ...superAdminProfile,
+          permissions: permissions
+        }
+      },
+      meta: {
+        timezone: 'UTC',
+        timezone_abbr: 'UTC'
       }
-    }, 200, req);
+    });
+
   } catch (error) {
     return errorResponse(res, 500, "Internal server error during login operation");
   }
@@ -99,6 +124,10 @@ const login = async (req, res) => {
 const createAdmin = async (req, res) => {
   try {
     const { email, password, name, role_id } = req.body;
+
+    if (!email || !password || !name || !role_id) {
+      return errorResponse(res, 400, "Email, password, name, and role_id are required");
+    }
 
     const existingAdmin = await getSuperAdminByEmail(email);
     if (existingAdmin) {
@@ -183,7 +212,7 @@ const updateProfile = async (req, res) => {
       superAdmin: updatedAdmin
     }, 200, req);
   } catch (error) {
-    if (error.message.includes('unique')) {
+    if (error.message && error.message.includes('unique')) {
       return errorResponse(res, 409, "Email is already in use by another admin");
     }
     return errorResponse(res, 500, "Failed to update profile");
@@ -236,6 +265,10 @@ const deleteAdmin = async (req, res) => {
     const id = parseInt(req.params.id);
     const currentAdminId = req.superAdmin.id;
 
+    if (isNaN(id)) {
+      return errorResponse(res, 400, "Invalid admin ID");
+    }
+
     if (currentAdminId === id) {
       return errorResponse(res, 400, "Cannot delete your own active admin account");
     }
@@ -265,6 +298,10 @@ const toggleAdminStatus = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
 
+    if (isNaN(id)) {
+      return errorResponse(res, 400, "Invalid admin ID");
+    }
+
     if (req.superAdmin.id === id) {
       return errorResponse(res, 400, "Cannot change the status of your own active admin account");
     }
@@ -287,7 +324,7 @@ const toggleAdminStatus = async (req, res) => {
 
 const getSuperAdminRoles = async (req, res) => {
     try {
-        const roles = await pool.query(`SELECT id, role_name, description, permissions FROM super_admin_roles`);
+        const roles = await pool.query(`SELECT id, role_name, description, permissions FROM super_admin_roles ORDER BY id`);
         return successResponse(res, "Super Admin roles fetched successfully", { roles: roles.rows }, 200, req);
     } catch (error) {
         return errorResponse(res, 500, "Failed to fetch roles.");
@@ -296,8 +333,12 @@ const getSuperAdminRoles = async (req, res) => {
 
 const updateSuperAdminRolePermissions = async (req, res) => {
     try {
-        const roleId = req.params.id;
+        const roleId = parseInt(req.params.id);
         const { permissions } = req.body;
+
+        if (isNaN(roleId)) {
+          return errorResponse(res, 400, "Invalid role ID");
+        }
 
         if (!permissions || typeof permissions !== 'object') {
              return errorResponse(res, 400, "Valid permissions object is required.");

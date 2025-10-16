@@ -1,7 +1,7 @@
 const pool = require('../../config/database');
 const bcrypt = require('bcryptjs');
 
-const ISO_TIMESTAMP = 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"';
+const ISO_TIMESTAMP = 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"';
 
 const getSuperAdminRoleById = async (roleId) => {
     const { rows } = await pool.query(
@@ -19,20 +19,43 @@ const getSuperAdminRoleByName = async (roleName) => {
     return rows[0];
 };
 
-
 const createSuperAdmin = async (data) => {
   const { email, password, name, super_admin_role_id, is_super_admin } = data;
   const hashedPassword = await bcrypt.hash(password, 12);
-  const query = `
-    INSERT INTO super_admins (email, password_hash, name, super_admin_role_id, is_super_admin)
-    VALUES ($1, $2, $3, $4, $5)
-    RETURNING id, email, name, is_super_admin, super_admin_role_id, TO_CHAR(created_at AT TIME ZONE 'UTC', '${ISO_TIMESTAMP}') as created_at
-  `;
-  const { rows } = await pool.query(query, [email, hashedPassword, name, super_admin_role_id, is_super_admin]);
+
+  const columnCheck = await pool.query(`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_name = 'super_admins' AND column_name = 'status'
+  `);
+
+  const hasStatusColumn = columnCheck.rows.length > 0;
+
+  let query, values;
+  if (hasStatusColumn) {
+    query = `
+      INSERT INTO super_admins (email, password_hash, name, super_admin_role_id, is_super_admin, status)
+      VALUES ($1, $2, $3, $4, $5, 'active')
+      RETURNING id, email, name, is_super_admin, super_admin_role_id,
+                TO_CHAR(created_at AT TIME ZONE 'UTC', '${ISO_TIMESTAMP}') as created_at
+    `;
+    values = [email, hashedPassword, name, super_admin_role_id, is_super_admin];
+  } else {
+    query = `
+      INSERT INTO super_admins (email, password_hash, name, super_admin_role_id, is_super_admin)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING id, email, name, is_super_admin, super_admin_role_id,
+                TO_CHAR(created_at AT TIME ZONE 'UTC', '${ISO_TIMESTAMP}') as created_at
+    `;
+    values = [email, hashedPassword, name, super_admin_role_id, is_super_admin];
+  }
+
+  const { rows } = await pool.query(query, values);
   return rows[0];
 };
 
 const getSuperAdminByEmail = async (email) => {
+  // Simple query - get all columns
   const { rows } = await pool.query(
     'SELECT * FROM super_admins WHERE email = $1',
     [email]
@@ -41,27 +64,74 @@ const getSuperAdminByEmail = async (email) => {
 };
 
 const getSuperAdminById = async (id) => {
-  const { rows } = await pool.query(
-    `SELECT sa.id, sa.email, sa.name, sa.status, sa.is_super_admin, sa.super_admin_role_id, sar.role_name,
-            TO_CHAR(sa.created_at AT TIME ZONE 'UTC', '${ISO_TIMESTAMP}') as created_at,
-            TO_CHAR(sa.updated_at AT TIME ZONE 'UTC', '${ISO_TIMESTAMP}') as updated_at
-     FROM super_admins sa
-     LEFT JOIN super_admin_roles sar ON sa.super_admin_role_id = sar.id
-     WHERE sa.id = $1`,
-    [id]
-  );
+  // Check if status column exists first
+  const columnCheck = await pool.query(`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_name = 'super_admins' AND column_name = 'status'
+  `);
+
+  const hasStatusColumn = columnCheck.rows.length > 0;
+
+  let query;
+  if (hasStatusColumn) {
+    query = `
+      SELECT sa.id, sa.email, sa.name, sa.status, sa.is_super_admin,
+             sa.super_admin_role_id, sar.role_name,
+             TO_CHAR(sa.created_at AT TIME ZONE 'UTC', '${ISO_TIMESTAMP}') as created_at,
+             TO_CHAR(sa.updated_at AT TIME ZONE 'UTC', '${ISO_TIMESTAMP}') as updated_at
+      FROM super_admins sa
+      LEFT JOIN super_admin_roles sar ON sa.super_admin_role_id = sar.id
+      WHERE sa.id = $1
+    `;
+  } else {
+    query = `
+      SELECT sa.id, sa.email, sa.name, sa.is_super_admin,
+             sa.super_admin_role_id, sar.role_name,
+             TO_CHAR(sa.created_at AT TIME ZONE 'UTC', '${ISO_TIMESTAMP}') as created_at,
+             TO_CHAR(sa.updated_at AT TIME ZONE 'UTC', '${ISO_TIMESTAMP}') as updated_at
+      FROM super_admins sa
+      LEFT JOIN super_admin_roles sar ON sa.super_admin_role_id = sar.id
+      WHERE sa.id = $1
+    `;
+  }
+
+  const { rows } = await pool.query(query, [id]);
   return rows[0];
 };
 
 const getAllSuperAdmins = async () => {
-  const { rows } = await pool.query(
-    `SELECT sa.id, sa.email, sa.name, sa.status, sa.is_super_admin, sar.role_name,
-            TO_CHAR(sa.created_at AT TIME ZONE 'UTC', '${ISO_TIMESTAMP}') as created_at,
-            TO_CHAR(sa.updated_at AT TIME ZONE 'UTC', '${ISO_TIMESTAMP}') as updated_at
-     FROM super_admins sa
-     LEFT JOIN super_admin_roles sar ON sa.super_admin_role_id = sar.id
-     ORDER BY sa.created_at DESC`
-  );
+  // Check if status column exists first
+  const columnCheck = await pool.query(`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_name = 'super_admins' AND column_name = 'status'
+  `);
+
+  const hasStatusColumn = columnCheck.rows.length > 0;
+
+  let query;
+  if (hasStatusColumn) {
+    query = `
+      SELECT sa.id, sa.email, sa.name, sa.status, sa.is_super_admin, sar.role_name,
+             TO_CHAR(sa.created_at AT TIME ZONE 'UTC', '${ISO_TIMESTAMP}') as created_at,
+             TO_CHAR(sa.updated_at AT TIME ZONE 'UTC', '${ISO_TIMESTAMP}') as updated_at
+      FROM super_admins sa
+      LEFT JOIN super_admin_roles sar ON sa.super_admin_role_id = sar.id
+      ORDER BY sa.created_at DESC
+    `;
+  } else {
+    query = `
+      SELECT sa.id, sa.email, sa.name, sa.is_super_admin, sar.role_name,
+             TO_CHAR(sa.created_at AT TIME ZONE 'UTC', '${ISO_TIMESTAMP}') as created_at,
+             TO_CHAR(sa.updated_at AT TIME ZONE 'UTC', '${ISO_TIMESTAMP}') as updated_at
+      FROM super_admins sa
+      LEFT JOIN super_admin_roles sar ON sa.super_admin_role_id = sar.id
+      ORDER BY sa.created_at DESC
+    `;
+  }
+
+  const { rows } = await pool.query(query);
   return rows;
 };
 
@@ -95,7 +165,6 @@ const verifyPassword = async (plainPassword, hashedPassword) => {
   return await bcrypt.compare(plainPassword, hashedPassword);
 };
 
-
 const deleteSuperAdmin = async (id) => {
   const query = `
     DELETE FROM super_admins
@@ -107,6 +176,17 @@ const deleteSuperAdmin = async (id) => {
 };
 
 const updateSuperAdminStatus = async (id, status) => {
+  // Check if status column exists first
+  const columnCheck = await pool.query(`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_name = 'super_admins' AND column_name = 'status'
+  `);
+
+  if (columnCheck.rows.length === 0) {
+    throw new Error('Status column does not exist in super_admins table');
+  }
+
   const query = `
     UPDATE super_admins
     SET status = $1, updated_at = CURRENT_TIMESTAMP
@@ -117,7 +197,6 @@ const updateSuperAdminStatus = async (id, status) => {
   const { rows } = await pool.query(query, [status, id]);
   return rows[0];
 };
-
 
 module.exports = {
   createSuperAdmin,
