@@ -12,6 +12,7 @@ const {
   invalidateSession,
   updateCompanyVerification,
   assignTrialSubscription,
+  getCompanyById,
 } = require('../models/authModel');
 
 const { staffLogin: staffLoginModel } = require('../models/staffModel');
@@ -41,16 +42,12 @@ const assignInitialTrial = async (company) => {
   const trialPackage = await getTrialPackage();
 
   if (!trialPackage) {
-    // If no active trial package is configured, we cannot assign a trial
     console.warn("No active trial package found. Skipping trial assignment for new company.");
     return;
   }
 
-  // Use trial_duration_days from the fetched package, falling back to 7 days if invalid/missing
   const duration = trialPackage.trial_duration_days || 7;
   const endDate = moment().add(duration, 'days').toISOString();
-
-  // Assigns the subscription using the trial package details
   await assignTrialSubscription(company.id, trialPackage.id, endDate);
 };
 
@@ -205,7 +202,6 @@ const login = async (req, res) => {
         return successResponse(res, "Login successful", responseData, 200, req);
       }
     }
-
     try {
       const staff = await staffLoginModel(trimmedEmail, trimmedPassword);
       if (staff) {
