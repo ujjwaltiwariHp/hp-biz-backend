@@ -1,5 +1,16 @@
 const pool = require('../../config/database');
 
+const jsonParse = (item) => {
+    if (item && item.features && typeof item.features === 'string') {
+        try {
+            item.features = JSON.parse(item.features);
+        } catch (e) {
+            item.features = [];
+        }
+    }
+    return item;
+};
+
 const getAllPackages = async () => {
   try {
     const query = `
@@ -12,7 +23,7 @@ const getAllPackages = async () => {
       ORDER BY sp.created_at DESC
     `;
     const result = await pool.query(query);
-    return result.rows;
+    return result.rows.map(jsonParse);
   } catch (error) {
     throw error;
   }
@@ -30,7 +41,37 @@ const getPackageById = async (id) => {
       GROUP BY sp.id
     `;
     const result = await pool.query(query, [parseInt(id)]);
-    return result.rows[0];
+    return jsonParse(result.rows[0]);
+  } catch (error) {
+    throw error;
+  }
+};
+
+const getTrialPackage = async () => {
+  try {
+    // Fetch all necessary details for trial assignment and UI presentation
+    const query = `
+      SELECT id, name, max_staff_count, max_leads_per_month, features::text, trial_duration_days
+      FROM subscription_packages
+      WHERE is_trial = TRUE AND is_active = TRUE
+      LIMIT 1
+    `;
+    const result = await pool.query(query);
+    return jsonParse(result.rows[0]);
+  } catch (error) {
+    throw error;
+  }
+};
+
+const countActiveCompaniesByPackage = async (packageId) => {
+  try {
+    const query = `
+      SELECT COUNT(id)::integer AS active_company_count
+      FROM companies
+      WHERE subscription_package_id = $1 AND is_active = TRUE
+    `;
+    const result = await pool.query(query, [packageId]);
+    return parseInt(result.rows[0].active_company_count, 10);
   } catch (error) {
     throw error;
   }
@@ -38,12 +79,12 @@ const getPackageById = async (id) => {
 
 const createPackage = async (packageData) => {
   try {
-    const { name, duration_type, price, features, max_staff_count, max_leads_per_month } = packageData;
+    const { name, duration_type, price, features, max_staff_count, max_leads_per_month, is_trial, trial_duration_days, is_active } = packageData;
 
     const query = `
       INSERT INTO subscription_packages (
-        name, duration_type, price, features, max_staff_count, max_leads_per_month
-      ) VALUES ($1, $2, $3, $4, $5, $6)
+        name, duration_type, price, features, max_staff_count, max_leads_per_month, is_trial, trial_duration_days, is_active
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *
     `;
 
@@ -51,12 +92,15 @@ const createPackage = async (packageData) => {
       name,
       duration_type,
       parseFloat(price),
-      JSON.stringify(features),
+      JSON.stringify(features || []),
       parseInt(max_staff_count),
-      parseInt(max_leads_per_month)
+      parseInt(max_leads_per_month),
+      is_trial || false,
+      is_trial ? parseInt(trial_duration_days) : 0,
+      is_active !== undefined ? is_active : true
     ]);
 
-    return result.rows[0];
+    return jsonParse(result.rows[0]);
   } catch (error) {
     throw error;
   }
@@ -64,32 +108,48 @@ const createPackage = async (packageData) => {
 
 const updatePackage = async (id, packageData) => {
   try {
-    const { name, duration_type, price, features, max_staff_count, max_leads_per_month } = packageData;
+    // Construct dynamic update query to handle partial updates cleanly
+    const fields = [];
+    const values = [parseInt(id)];
+    let paramIndex = 2;
+
+    const allowedFields = [
+        'name', 'duration_type', 'price', 'max_staff_count',
+        'max_leads_per_month', 'is_trial', 'trial_duration_days', 'is_active', 'features'
+    ];
+
+    allowedFields.forEach(key => {
+        if (packageData[key] !== undefined) {
+            fields.push(`${key} = $${paramIndex}`);
+
+            if (key === 'features') {
+                 values.push(JSON.stringify(packageData[key]));
+            } else if (key === 'max_staff_count' || key === 'max_leads_per_month' || key === 'trial_duration_days') {
+                 values.push(parseInt(packageData[key]));
+            } else {
+                 values.push(packageData[key]);
+            }
+            paramIndex++;
+        }
+    });
+
+    if (fields.length === 0) {
+      // If no valid fields are provided, just return the existing package
+      return getPackageById(id);
+    }
 
     const query = `
       UPDATE subscription_packages
       SET
-        name = $2,
-        duration_type = $3,
-        price = $4,
-        features = $5,
-        max_staff_count = $6,
-        max_leads_per_month = $7
+        ${fields.join(', ')},
+        updated_at = CURRENT_TIMESTAMP
       WHERE id = $1
       RETURNING *
     `;
 
-    const result = await pool.query(query, [
-      parseInt(id),
-      name,
-      duration_type,
-      parseFloat(price),
-      JSON.stringify(features),
-      parseInt(max_staff_count),
-      parseInt(max_leads_per_month)
-    ]);
+    const result = await pool.query(query, values);
 
-    return result.rows[0];
+    return jsonParse(result.rows[0]);
   } catch (error) {
     throw error;
   }
@@ -114,7 +174,7 @@ const togglePackageStatus = async (id) => {
       RETURNING *
     `;
     const result = await pool.query(query, [parseInt(id)]);
-    return result.rows[0];
+    return jsonParse(result.rows[0]);
   } catch (error) {
     throw error;
   }
@@ -146,7 +206,7 @@ const getActivePackages = async () => {
       ORDER BY price ASC
     `;
     const result = await pool.query(query);
-    return result.rows;
+    return result.rows.map(jsonParse);
   } catch (error) {
     throw error;
   }
@@ -160,5 +220,7 @@ module.exports = {
   deletePackage,
   togglePackageStatus,
   checkPackageExists,
-  getActivePackages
+  getActivePackages,
+  getTrialPackage,
+  countActiveCompaniesByPackage
 };

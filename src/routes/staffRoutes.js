@@ -16,24 +16,37 @@ const {
 const { authenticateAny, requirePermission } = require('../middleware/auth');
 const { validateStaffData } = require('../middleware/validation');
 const { logActivity } = require('../middleware/loggingMiddleware');
-const { attachTimezone } = require('../middleware/timezoneMiddleware'); // ADDED
+const { attachTimezone } = require('../middleware/timezoneMiddleware');
+const {
+    getCompanySubscriptionAndUsage,
+    checkSubscriptionActive,
+    checkStaffLimit
+} = require('../middleware/subscriptionMiddleware');
 
 const router = express.Router();
 
-// Fetching Lists/Stats/Individual Staff (GET) - Timestamps are relevant
-router.get('/', authenticateAny, attachTimezone, requirePermission('user_management'), getAllStaff);
-router.get('/roles', authenticateAny, attachTimezone, getCompanyRoles);
-router.get('/designations', authenticateAny, attachTimezone, getDesignationOptions);
-router.get('/statuses', authenticateAny, attachTimezone, getStatusOptions);
-router.get('/stats', authenticateAny, attachTimezone, requirePermission('user_management'), getStaffStats);
-router.get('/:id', authenticateAny, attachTimezone, requirePermission('user_management'), getStaffById);
-router.get('/:id/performance', authenticateAny, attachTimezone, requirePermission('user_management'), getStaffPerformance);
+const subscriptionChain = [authenticateAny, attachTimezone, getCompanySubscriptionAndUsage, checkSubscriptionActive];
 
-// Creation/Modification (POST/PUT) - Timestamps and input conversion may be relevant
-router.post('/create', authenticateAny, attachTimezone, requirePermission('user_management'), validateStaffData, createStaff);
-router.put('/:id', authenticateAny, attachTimezone, requirePermission('user_management'), updateStaff);
-router.put('/status/:id', authenticateAny, attachTimezone, requirePermission('user_management'), updateStaffStatus);
+// Fetching Lists/Stats/Individual Staff (GET) - Added Subscription Check
+router.get('/', ...subscriptionChain, requirePermission('user_management'), getAllStaff);
+router.get('/roles', ...subscriptionChain, getCompanyRoles);
+router.get('/designations', ...subscriptionChain, getDesignationOptions);
+router.get('/statuses', ...subscriptionChain, getStatusOptions);
+router.get('/stats', ...subscriptionChain, requirePermission('user_management'), getStaffStats);
+router.get('/:id', ...subscriptionChain, requirePermission('user_management'), getStaffById);
+router.get('/:id/performance', ...subscriptionChain, requirePermission('user_management'), getStaffPerformance);
 
-router.delete('/delete/:id', authenticateAny, attachTimezone, requirePermission('user_management'), logActivity, deleteStaff);
+// Creation/Modification (POST/PUT) - Added Subscription and Limit Checks
+router.post('/create',
+    ...subscriptionChain,
+    requirePermission('user_management'),
+    checkStaffLimit,
+    validateStaffData,
+    createStaff
+);
+router.put('/:id', ...subscriptionChain, requirePermission('user_management'), updateStaff);
+router.put('/status/:id', ...subscriptionChain, requirePermission('user_management'), updateStaffStatus);
+
+router.delete('/delete/:id', ...subscriptionChain, requirePermission('user_management'), logActivity, deleteStaff);
 
 module.exports = router;

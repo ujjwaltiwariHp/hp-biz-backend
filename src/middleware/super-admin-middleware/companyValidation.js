@@ -48,9 +48,27 @@ const validateUsageReport = [
   handleValidationErrors
 ];
 
+const validateCompanyCreationByAdmin = [
+  body('company_name').notEmpty().withMessage('Company name is required'),
+  body('admin_email').isEmail().withMessage('Valid admin email is required'),
+  body('admin_name').notEmpty().withMessage('Admin name is required'),
+  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters long'),
+  body('subscription_package_id').isInt({ min: 1 }).withMessage('Subscription package ID is required'),
+  body('subscription_start_date').isISO8601().withMessage('Valid subscription start date is required'),
+  body('subscription_end_date').isISO8601().withMessage('Valid subscription end date is required'),
+  body('subscription_end_date').custom((value, { req }) => {
+    if (new Date(value) <= new Date(req.body.subscription_start_date)) {
+      throw new Error('Subscription end date must be after start date');
+    }
+    return true;
+  }),
+  handleValidationErrors
+];
+
 module.exports = {
   validateCompanyId,
   validateCompanyQuery,
   validateSubscriptionUpdate,
-  validateUsageReport
+  validateUsageReport,
+  validateCompanyCreationByAdmin
 };

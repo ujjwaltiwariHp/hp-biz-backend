@@ -280,6 +280,16 @@ const getStaffStats = async (companyId) => {
   return result.rows[0];
 };
 
+const getCurrentStaffCount = async (companyId) => {
+  const result = await pool.query(
+    `SELECT COUNT(id)::integer as count FROM staff
+     WHERE company_id = $1 AND status = 'active'`,
+    [companyId]
+  );
+  return result.rows[0]?.count || 0;
+};
+
+
 const getDesignationOptions = async () => {
   const designations = [
     { value: 'Manager', label: 'Manager' },
@@ -326,6 +336,7 @@ module.exports = {
   hasPermission,
   isEmailUnique,
   getStaffStats,
+  getCurrentStaffCount,
   getDesignationOptions,
   getStatusOptions
 };

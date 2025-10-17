@@ -10,11 +10,16 @@ const {
   createResetOTP,
   getValidResetOTP,
   invalidateSession,
-  updateCompanyVerification
+  updateCompanyVerification,
+  assignTrialSubscription,
 } = require('../models/authModel');
 
 const { staffLogin: staffLoginModel } = require('../models/staffModel');
 const Staff = require("../models/staffModel");
+
+const { getTrialPackage } = require('../models/super-admin-models/subscriptionModel');
+const { getCurrentStaffCount } = require('../models/staffModel');
+const { getLeadsCreatedThisMonth, getLeadsTotalCount } = require('../models/leadsModel');
 
 const pool = require('../config/database');
 
@@ -30,6 +35,24 @@ const {
   isValidTimezone
 } = require('../utils/timezoneHelper');
 const { createNotification } = require('../../src/models/super-admin-models/notificationModel');
+const moment = require('moment');
+
+const assignInitialTrial = async (company) => {
+  const trialPackage = await getTrialPackage();
+
+  if (!trialPackage) {
+    // If no active trial package is configured, we cannot assign a trial
+    console.warn("No active trial package found. Skipping trial assignment for new company.");
+    return;
+  }
+
+  // Use trial_duration_days from the fetched package, falling back to 7 days if invalid/missing
+  const duration = trialPackage.trial_duration_days || 7;
+  const endDate = moment().add(duration, 'days').toISOString();
+
+  // Assigns the subscription using the trial package details
+  await assignTrialSubscription(company.id, trialPackage.id, endDate);
+};
 
 const signup = async (req, res) => {
   try {
@@ -93,9 +116,11 @@ const verifyOTP = async (req, res) => {
     await markOTPAsUsed(otpRecord.id);
 
     if (otpRecord.otp_type === 'signup') {
-      await updateCompanyVerification(email, true);
+      const company = await updateCompanyVerification(email, true);
+      if (company && !company.subscription_package_id) {
+        await assignInitialTrial(company);
+      }
     }
-
 
     return successResponse(res, "OTP verified successfully", {}, 200, req);
 
@@ -122,7 +147,11 @@ const setPassword = async (req, res) => {
     }
 
     await updateCompanyPassword(email, password);
-    await updateCompanyVerification(email, true);
+    const updatedCompany = await updateCompanyVerification(email, true);
+
+    if (updatedCompany && !updatedCompany.subscription_package_id) {
+      await assignInitialTrial(updatedCompany);
+    }
 
     return successResponse(res, "Password set successfully. You can now login.", {}, 200, req);
 
@@ -146,21 +175,30 @@ const login = async (req, res) => {
     if (company && company.email_verified && company.password_hash) {
       const isValidPassword = await verifyPassword(trimmedPassword, company.password_hash);
       if (isValidPassword) {
+        const detailedCompany = await getCompanyById(company.id);
+        const subscriptionEndDate = moment(detailedCompany.subscription_end_date);
+
+        if (!detailedCompany.is_active || subscriptionEndDate.isBefore(moment())) {
+          return errorResponse(res, 403, "Your company subscription is inactive or expired. Please contact support.");
+        }
+
         const token = generateToken({
-          id: company.id,
-          admin_email: company.admin_email,
+          id: detailedCompany.id,
+          admin_email: detailedCompany.admin_email,
           type: 'company'
         });
 
         const responseData = {
           token,
           company: {
-            id: company.id,
-            admin_email: company.admin_email,
-            company_name: company.company_name,
-            unique_company_id: company.unique_company_id,
-            email_verified: company.email_verified,
-            created_at: company.created_at
+            id: detailedCompany.id,
+            admin_email: detailedCompany.admin_email,
+            company_name: detailedCompany.company_name,
+            unique_company_id: detailedCompany.unique_company_id,
+            email_verified: detailedCompany.email_verified,
+            created_at: detailedCompany.created_at,
+            subscription_end_date: detailedCompany.subscription_end_date,
+            is_active: detailedCompany.is_active
           }
         };
 
@@ -376,13 +414,29 @@ const getProfile = async (req, res) => {
   try {
     if (req.userType === 'admin') {
       const company = req.company;
+      const companyId = company.id;
 
       const { rows } = await pool.query(
         'SELECT timezone FROM company_settings WHERE company_id = $1',
-        [company.id]
+        [companyId]
       );
-
       const timezone = rows[0]?.timezone || 'UTC';
+
+      const [
+        staffCount,
+        leadsThisMonthCount,
+        leadsTotalCount
+      ] = await Promise.all([
+        getCurrentStaffCount(companyId),
+        getLeadsCreatedThisMonth(companyId),
+        getLeadsTotalCount(companyId)
+      ]);
+
+      const subscriptionEndDate = moment(company.subscription_end_date);
+      const daysRemaining = subscriptionEndDate.isValid() && subscriptionEndDate.isAfter(moment())
+                           ? subscriptionEndDate.diff(moment(), 'days') : 0;
+
+      const packageFeatures = company.features || [];
 
       const profileData = {
         company: {
@@ -401,6 +455,22 @@ const getProfile = async (req, res) => {
           created_at: company.created_at,
           updated_at: company.updated_at,
           timezone: timezone
+        },
+        subscription: {
+          package_name: company.package_name,
+          max_staff: company.max_staff_count,
+          max_leads_per_month: company.max_leads_per_month,
+          expires_at: company.subscription_end_date,
+          days_remaining: daysRemaining,
+          is_trial: company.is_trial,
+          features: packageFeatures
+        },
+        usage: {
+          staff_count: staffCount,
+          staff_limit: company.max_staff_count,
+          leads_this_month: leadsThisMonthCount,
+          leads_limit: company.max_leads_per_month,
+          leads_total: leadsTotalCount
         }
       };
 

@@ -105,21 +105,58 @@ const getCompanyByEmail = async (admin_email) => {
 const getCompanyById = async (id) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, unique_company_id, company_name, admin_email, admin_name, phone, address,
-              website, industry, company_size, email_verified, is_active,
-              subscription_package_id, subscription_start_date, subscription_end_date,
-              TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
-              TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at
-       FROM companies
-       WHERE id = $1 AND email_verified = TRUE`,
+      `SELECT
+          c.id, c.unique_company_id, c.company_name, c.admin_email, c.admin_name,
+          c.phone, c.address, c.website, c.industry, c.company_size, c.password_hash,
+          c.email_verified, c.is_active, c.subscription_package_id, c.subscription_start_date, c.subscription_end_date,
+          sp.name AS package_name, sp.max_staff_count, sp.max_leads_per_month, sp.features, sp.is_trial,
+          TO_CHAR(c.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
+          TO_CHAR(c.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at
+       FROM companies c
+       LEFT JOIN subscription_packages sp ON c.subscription_package_id = sp.id
+       WHERE c.id = $1`,
       [id]
     );
 
-    return rows.length ? rows[0] : null;
+    const company = rows.length ? rows[0] : null;
+
+    // Parse features field if it's a string (as returned by pg when JSON/JSONB is selected)
+    if (company && company.features && typeof company.features === 'string') {
+        try {
+            company.features = JSON.parse(company.features);
+        } catch (e) {
+            company.features = [];
+        }
+    }
+
+    return company;
   } catch (error) {
     throw new Error("Database error while fetching company");
   }
 };
+
+const assignTrialSubscription = async (companyId, packageId, endDate) => {
+  const query = `
+    UPDATE companies
+    SET
+        subscription_package_id = $2,
+        subscription_start_date = CURRENT_TIMESTAMP,
+        subscription_end_date = $3,
+        is_active = TRUE,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1
+    RETURNING id, is_active, subscription_package_id, subscription_end_date;
+  `;
+
+  const { rows } = await pool.query(query, [
+    companyId,
+    packageId,
+    endDate
+  ]);
+
+  return rows[0];
+};
+
 
 const updateCompanyPassword = async (admin_email, password) => {
   const hashedPassword = await bcrypt.hash(password, 12);
@@ -233,5 +270,6 @@ module.exports = {
   cleanExpiredOTPs,
   createResetOTP,
   getValidResetOTP,
-  invalidateSession
+  invalidateSession,
+  assignTrialSubscription
 };

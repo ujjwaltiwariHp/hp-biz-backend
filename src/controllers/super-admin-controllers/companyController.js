@@ -7,8 +7,14 @@ const {
   deleteCompany,
   getCompanyStats,
   getDashboardStats,
-  getCompanyUsageReport
+  getCompanyUsageReport,
+  createCompanyBySuperAdmin
 } = require('../../models/super-admin-models/companyModel');
+const Role = require('../../../src/models/roleModel');
+const { sendResetOTPEmail } = require('../../services/emailService');
+const { createResetOTP, getCompanyByEmail } = require('../../models/authModel');
+const { generateOTP } = require('../../utils/generateOTP');
+const { generateCompanyRegistrationNotification } = require('../../models/super-admin-models/notificationModel');
 const { successResponse } = require('../../utils/successResponse');
 const { errorResponse } = require('../../utils/errorResponse');
 
@@ -70,8 +76,27 @@ const getCompany = async (req, res) => {
 
     const stats = await getCompanyStats(id);
 
+    if (company.features && typeof company.features === 'string') {
+        try {
+            company.features = JSON.parse(company.features);
+        } catch (e) {
+            company.features = [];
+        }
+    }
+
+    let daysRemaining = 0;
+    if (company.subscription_end_date) {
+        const endDate = new Date(company.subscription_end_date);
+        const diffTime = endDate.getTime() - Date.now();
+        daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        if (daysRemaining < 0) daysRemaining = 0;
+    }
+
     return successResponse(res, "Company retrieved successfully", {
-      company,
+      company: {
+          ...company,
+          days_remaining: daysRemaining
+      },
       stats
     });
   } catch (error) {
@@ -315,6 +340,78 @@ const getUsageReport = async (req, res) => {
   }
 };
 
+const createCompanyByAdmin = async (req, res) => {
+    try {
+        const {
+            company_name,
+            admin_email,
+            admin_name,
+            password,
+            subscription_package_id,
+            subscription_start_date,
+            subscription_end_date,
+            send_welcome_email = true,
+            ...otherData
+        } = req.body;
+
+        const existingCompany = await getCompanyByEmail(admin_email);
+        if (existingCompany) {
+            return errorResponse(res, 409, "A company with this admin email already exists.");
+        }
+
+        const newCompany = await createCompanyBySuperAdmin({
+            company_name,
+            admin_email,
+            admin_name,
+            password,
+            subscription_package_id: parseInt(subscription_package_id),
+            subscription_start_date,
+            subscription_end_date,
+            ...otherData
+        });
+
+        if (!newCompany) {
+            return errorResponse(res, 500, "Failed to create company.");
+        }
+
+        await Role.createDefaultRoles(newCompany.id);
+
+        if (send_welcome_email) {
+            const otp = generateOTP();
+            const expiresAt = new Date(Date.now() + (process.env.OTP_EXPIRE_MINUTES || 10) * 60 * 1000);
+
+            await createResetOTP({ email: admin_email, otp, expires_at: expiresAt });
+
+            // Note: We use sendResetOTPEmail for the OTP delivery, but it acts as a secure activation link
+            await sendResetOTPEmail(admin_email, otp);
+        }
+
+        await generateCompanyRegistrationNotification({
+            id: newCompany.id,
+            company_name,
+            admin_email,
+            subscription_package_id
+        });
+
+        return successResponse(res, "Company created and subscription assigned successfully. Activation OTP sent to admin email.", {
+            company: {
+                id: newCompany.id,
+                company_name: newCompany.company_name,
+                admin_email: newCompany.admin_email,
+                created_at: newCompany.created_at,
+                subscription_package_id: parseInt(subscription_package_id)
+            }
+        }, 201);
+
+    } catch (error) {
+        console.error('Super Admin Create Company Error:', error);
+        if (error.message.includes('foreign key')) {
+            return errorResponse(res, 400, "Invalid Subscription Package ID provided.");
+        }
+        return errorResponse(res, 500, "Failed to create company and assign subscription.");
+    }
+};
+
 module.exports = {
   getCompanies,
   getCompany,
@@ -323,5 +420,6 @@ module.exports = {
   updateSubscription,
   removeCompany,
   getDashboard,
-  getUsageReport
+  getUsageReport,
+  createCompanyByAdmin
 };

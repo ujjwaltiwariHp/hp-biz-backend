@@ -1,4 +1,10 @@
 const pool = require('../../config/database');
+const bcrypt = require('bcryptjs');
+const { v4: uuidv4 } = require('uuid');
+
+const generateUniqueId = () => {
+  return 'COMP_' + uuidv4().substring(0, 8).toUpperCase();
+};
 
 const getAllCompanies = async (limit = 10, offset = 0, search = '', status = '') => {
   try {
@@ -53,6 +59,8 @@ const getCompanyById = async (id) => {
         sp.duration_type,
         sp.max_staff_count,
         sp.max_leads_per_month,
+        sp.features,
+        sp.is_trial,
         (SELECT COUNT(*) FROM staff s WHERE s.company_id = c.id) as staff_count,
         (SELECT COUNT(*) FROM leads l WHERE l.company_id = c.id) as leads_count
       FROM companies c
@@ -141,7 +149,7 @@ const getCompanyStats = async (id) => {
       SELECT
         COALESCE((SELECT COUNT(*) FROM staff WHERE company_id = $1), 0)::integer as total_staff,
         COALESCE((SELECT COUNT(*) FROM leads WHERE company_id = $1), 0)::integer as total_leads,
-        COALESCE((SELECT COUNT(*) FROM leads WHERE company_id = $1 AND created_at >= CURRENT_DATE - INTERVAL '30 days'), 0)::integer as leads_this_month,
+        COALESCE((SELECT COUNT(*) FROM leads WHERE company_id = $1 AND created_at >= date_trunc('month', CURRENT_DATE)), 0)::integer as leads_this_month,
         COALESCE((SELECT COUNT(*) FROM lead_activities WHERE lead_id IN (SELECT id FROM leads WHERE company_id = $1)), 0)::integer as total_activities
     `;
     const result = await pool.query(query, [parseInt(id)]);
@@ -192,6 +200,61 @@ const getCompanyUsageReport = async (startDate, endDate) => {
   }
 };
 
+const createCompanyBySuperAdmin = async (data) => {
+    const {
+        company_name,
+        admin_email,
+        admin_name,
+        password,
+        phone,
+        address,
+        industry,
+        company_size,
+        subscription_package_id,
+        subscription_start_date,
+        subscription_end_date,
+        is_active = true
+    } = data;
+
+    let unique_company_id = generateUniqueId();
+    let isUnique = false;
+
+    // Ensure unique_company_id is unique
+    while (!isUnique) {
+        const { rows: existing } = await pool.query(
+            'SELECT id FROM companies WHERE unique_company_id = $1',
+            [unique_company_id]
+        );
+        if (existing.length === 0) {
+            isUnique = true;
+        } else {
+            unique_company_id = generateUniqueId();
+        }
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    const query = `
+        INSERT INTO companies (
+            unique_company_id, company_name, admin_email, password_hash, admin_name,
+            phone, address, industry, company_size, subscription_package_id,
+            subscription_start_date, subscription_end_date, is_active, email_verified
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TRUE)
+        RETURNING id, unique_company_id, company_name, admin_email, admin_name,
+                  TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at
+    `;
+
+    const values = [
+        unique_company_id, company_name, admin_email, hashedPassword, admin_name,
+        phone || null, address || null, industry || null, company_size || null,
+        subscription_package_id, subscription_start_date, subscription_end_date, is_active
+    ];
+
+    const result = await pool.query(query, values);
+    return result.rows[0];
+};
+
 module.exports = {
   getAllCompanies,
   getCompanyById,
@@ -201,5 +264,6 @@ module.exports = {
   deleteCompany,
   getCompanyStats,
   getDashboardStats,
-  getCompanyUsageReport
+  getCompanyUsageReport,
+  createCompanyBySuperAdmin
 };

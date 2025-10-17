@@ -21,6 +21,7 @@ const superAdminnotificationRoutes = require('./src/routes/super-admin-routes/no
 const superAdminLoggingRoutes = require('./src/routes/super-admin-routes/loggingRoutes');
 const swaggerDocs = require('./src/config/swagger');
 const { startOtpCleanupJob } = require('./src/jobs/otpCleanup');
+const { startSubscriptionCron } = require('./src/jobs/subscriptionExpiry');
 const { globalLogActivity, logError } = require('./src/middleware/loggingMiddleware');
 const { startNotificationCron } = require('./src/utils/notificationCron');
 const { attachTimezone, attachTimezoneForSuperAdmin } = require('./src/middleware/timezoneMiddleware');
@@ -117,6 +118,7 @@ const startServer = async () => {
     console.log('Database connected at:', result.rows[0].now);
     startOtpCleanupJob();
     startNotificationCron();
+    startSubscriptionCron();
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
