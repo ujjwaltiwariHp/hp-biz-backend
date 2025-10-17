@@ -6,7 +6,8 @@ const {
   deletePackage,
   togglePackageStatus,
   checkPackageExists,
-  getActivePackages
+  getActivePackages,
+  countActiveCompaniesByPackage
 } = require('../../models/super-admin-models/subscriptionModel');
 const { successResponse } = require('../../utils/successResponse');
 const { errorResponse } = require('../../utils/errorResponse');
@@ -53,7 +54,7 @@ const getPackage = async (req, res) => {
 
 const createSubscriptionPackage = async (req, res) => {
   try {
-    const { name, duration_type, price, features, max_staff_count, max_leads_per_month } = req.body;
+    const { name, duration_type, price, features, max_staff_count, max_leads_per_month, is_trial, trial_duration_days } = req.body;
 
     const packageExists = await checkPackageExists(name);
     if (packageExists) {
@@ -68,13 +69,19 @@ const createSubscriptionPackage = async (req, res) => {
       return errorResponse(res, 400, "Staff count and leads count cannot be negative");
     }
 
+    if (is_trial && (!trial_duration_days || parseInt(trial_duration_days) <= 0)) {
+        return errorResponse(res, 400, "Trial duration days must be a positive integer when is_trial is true");
+    }
+
     const packageData = await createPackage({
       name,
       duration_type,
       price,
       features: features || [],
       max_staff_count,
-      max_leads_per_month
+      max_leads_per_month,
+      is_trial: is_trial || false,
+      trial_duration_days: trial_duration_days || 0
     });
 
     return successResponse(res, "Subscription package created successfully", {
@@ -88,7 +95,7 @@ const createSubscriptionPackage = async (req, res) => {
 const updateSubscriptionPackage = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, duration_type, price, features, max_staff_count, max_leads_per_month } = req.body;
+    const { name, duration_type, price, features, max_staff_count, max_leads_per_month, is_trial, trial_duration_days, is_active } = req.body;
 
     if (!id || isNaN(parseInt(id))) {
       return errorResponse(res, 400, "Invalid package ID provided");
@@ -104,22 +111,27 @@ const updateSubscriptionPackage = async (req, res) => {
       return errorResponse(res, 400, "Package with this name already exists");
     }
 
-    if (parseFloat(price) < 0) {
-      return errorResponse(res, 400, "Price cannot be negative");
+    const updateData = {
+        name,
+        duration_type,
+        price,
+        features: features || [],
+        max_staff_count,
+        max_leads_per_month,
+        is_trial: is_trial !== undefined ? is_trial : existingPackage.is_trial,
+        trial_duration_days: trial_duration_days !== undefined ? trial_duration_days : existingPackage.trial_duration_days,
+        is_active
+    };
+
+    if (updateData.is_trial && (!updateData.trial_duration_days || parseInt(updateData.trial_duration_days) <= 0)) {
+        return errorResponse(res, 400, "Trial duration days must be a positive integer when is_trial is true");
     }
 
-    if (parseInt(max_staff_count) < 0 || parseInt(max_leads_per_month) < 0) {
-      return errorResponse(res, 400, "Staff count and leads count cannot be negative");
+    if (parseFloat(updateData.price) < 0 || parseInt(updateData.max_staff_count) < 0 || parseInt(updateData.max_leads_per_month) < 0) {
+      return errorResponse(res, 400, "Price, staff count, and leads count cannot be negative");
     }
 
-    const updatedPackage = await updatePackage(id, {
-      name,
-      duration_type,
-      price,
-      features: features || [],
-      max_staff_count,
-      max_leads_per_month
-    });
+    const updatedPackage = await updatePackage(id, updateData);
 
     if (!updatedPackage) {
       return errorResponse(res, 500, "Failed to update subscription package");
@@ -182,6 +194,14 @@ const toggleStatus = async (req, res) => {
     const existingPackage = await getPackageById(id);
     if (!existingPackage) {
       return errorResponse(res, 404, "Subscription package not found");
+    }
+
+    // Business rule: Prevent deactivation if active companies are subscribed
+    if (existingPackage.is_active) {
+        const activeCompanyCount = await countActiveCompaniesByPackage(id);
+        if (activeCompanyCount > 0) {
+            return errorResponse(res, 400, `Cannot deactivate package. ${activeCompanyCount} active companies are currently subscribed to it.`);
+        }
     }
 
     const updatedPackage = await togglePackageStatus(id);

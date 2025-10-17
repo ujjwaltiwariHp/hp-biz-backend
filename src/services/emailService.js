@@ -217,11 +217,56 @@ const sendInvoiceEmail = async (invoiceData, pdfBuffer) => {
   }
 };
 
+
+const sendAdminProvisioningEmail = async (adminEmail, adminName, otp, loginUrl) => {
+  try {
+    const sendSmtpEmail = new brevo.SendSmtpEmail();
+
+    sendSmtpEmail.sender = {
+      name: "HPBIZ",
+      email: process.env.EMAIL_FROM || "ujjwaltiwari.hp@gmail.com"
+    };
+    sendSmtpEmail.to = [{ email: adminEmail }];
+    sendSmtpEmail.subject = `Welcome to HPBIZ, ${adminName}! Your Account is Ready.`;
+    sendSmtpEmail.htmlContent = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #f9f9f9;">
+        <div style="background: white; padding: 30px; border-radius: 10px;">
+          <h1 style="color: #000; text-align: center;">HPBIZ</h1>
+          <h2 style="color: #333; text-align: center;">Account Activated & Subscription Ready</h2>
+          <p style="color: #666;">Hello ${adminName},</p>
+          <p style="color: #666;">Your company account has been successfully provisioned by our team with your designated subscription package.</p>
+          <p style="color: #666;">To set your secure, permanent password and gain access, please use the OTP below at the login page's 'Forgot Password' link:</p>
+
+          <p style="text-align: center; color: #666;">Your activation OTP is:</p>
+          <div style="background: #000; color: #ffcc00; font-size: 32px; font-weight: bold; padding: 20px; text-align: center; border-radius: 8px; margin: 20px 0;">
+            ${otp}
+          </div>
+
+          <p style="text-align: center; margin-bottom: 20px;">
+            <a href="${loginUrl}" style="background: #ffcc00; color: #000; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
+              Go to Login Page
+            </a>
+          </p>
+          <p style="font-size: 12px; color: #666;">Note: You will use your email (${adminEmail}) and the OTP above on the 'Forgot Password' process to set your final password.</p>
+        </div>
+      </div>
+    `;
+
+    await apiInstance.sendTransacEmail(sendSmtpEmail);
+    console.log('Admin provisioning email sent successfully');
+  } catch (error) {
+    console.error('Brevo email error (Admin Provisioning):', error);
+    throw new Error('Failed to send email');
+  }
+};
+
+
 module.exports = {
   sendSignupOTPEmail,
   sendResetOTPEmail,
   sendStaffWelcomeEmail,
   sendNotificationEmail,
   sendAdminNotificationEmail,
-  sendInvoiceEmail
+  sendInvoiceEmail,
+  sendAdminProvisioningEmail
 };

@@ -188,8 +188,6 @@ const bulkUploadLeads = async (req, res) => {
       const batch = leadsToCreate.slice(i, i + BATCH_SIZE);
       const currentBatch = (i / BATCH_SIZE) + 1;
 
-      console.log(`Processing batch ${currentBatch} of ${totalBatches} (${batch.length} records)`);
-
       const preparedBatch = batch.map(lead => ({
         company_id: companyId,
         lead_source_id: parseInt(lead_source_id),
@@ -210,20 +208,13 @@ const bulkUploadLeads = async (req, res) => {
       }));
 
       try {
-        const startTime = Date.now();
         const result = await Lead.bulkCreateLeadsWithCopy(preparedBatch, defaultStatusId);
-        const endTime = Date.now();
-
         successCount += result.rowCount;
-        console.log(`✓ Batch ${currentBatch} completed in ${endTime - startTime}ms (${Math.round(result.rowCount / ((endTime - startTime) / 1000))} records/sec)`);
       } catch (dbError) {
         failedCount += batch.length;
         finalErrors.push(`Batch starting at index ${i} failed: ${dbError.message}`);
-        console.error(`✗ Batch ${currentBatch} failed: ${dbError.message}`);
       }
     }
-
-    console.log(`\nUpload Summary: ${successCount}/${leadsToCreate.length} records imported successfully`);
 
     if (created_by_type === 'staff' && successCount > 0) {
       await NotificationService.createCustomNotification(
@@ -365,7 +356,6 @@ const searchLeads = async (req, res) => {
       filters.date_from = parseAndConvertToUTC(date_from, req.timezone);
     }
     if (date_to) {
-      // Add one day to date_to to make the filter inclusive of the end date
       const dateToInclusive = new Date(new Date(date_to).getTime() + (24 * 60 * 60 * 1000));
       filters.date_to = parseAndConvertToUTC(dateToInclusive.toISOString(), req.timezone);
     }
@@ -679,7 +669,7 @@ const getLeadHistory = async (req, res) => {
     const companyId = req.company.id;
     const leadId = req.params.id;
 
-    const response = await Lead.getLeadHistoryWithTimeline(leadId, companyId);
+    const response = await Lead.getLeadHistoryComplete(leadId, companyId);
     return successResponse(res, "Lead history fetched successfully", response, 200, req);
   } catch (err) {
     if (err.message === "Lead not found or unauthorized") {

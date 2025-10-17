@@ -1478,6 +1478,24 @@ const getLeadHistoryWithTimeline = async (leadId, companyId) => {
   };
 };
 
+const getLeadsCreatedThisMonth = async (companyId) => {
+  const result = await pool.query(
+    `SELECT COUNT(id)::integer as count FROM leads
+     WHERE company_id = $1 AND created_at >= date_trunc('month', CURRENT_DATE)`,
+    [companyId]
+  );
+  return result.rows[0]?.count || 0;
+};
+
+const getLeadsTotalCount = async (companyId) => {
+  const result = await pool.query(
+    `SELECT COUNT(id)::integer as count FROM leads
+     WHERE company_id = $1`,
+    [companyId]
+  );
+  return result.rows[0]?.count || 0;
+};
+
 
 module.exports = {
   createLead,
@@ -1528,5 +1546,8 @@ module.exports = {
   deleteFollowUp,
   markFollowUpComplete,
   trackLeadActivity,
-  getLeadHistoryWithTimeline
+  getLeadHistoryWithTimeline,
+  getLeadsCreatedThisMonth,
+  getLeadsTotalCount
+
 };

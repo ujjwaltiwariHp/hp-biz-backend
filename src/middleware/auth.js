@@ -18,7 +18,7 @@ const authenticate = async (req, res, next) => {
 
     const company = await getCompanyById(decoded.id);
     if (!company || !company.is_active) {
-      return errorResponse(res, 401, "Invalid or expired token");
+      return errorResponse(res, 401, "Invalid or expired token or inactive subscription");
     }
 
     req.company = company;
@@ -49,12 +49,12 @@ const authenticateStaff = async (req, res, next) => {
     }
 
     if (staff.status !== 'active') {
-      return errorResponse(res, 401, "Account is inactive");
+      return errorResponse(res, 401, "Staff account is inactive");
     }
 
     const company = await getCompanyById(decoded.company_id);
-    if (!company) {
-      return errorResponse(res, 401, "Company not found");
+    if (!company || !company.is_active) {
+      return errorResponse(res, 401, "Company not found or inactive subscription");
     }
 
     req.staff = staff;
@@ -83,8 +83,8 @@ const authenticateAny = async (req, res, next) => {
       }
 
       const company = await getCompanyById(decoded.company_id);
-      if (!company) {
-        return errorResponse(res, 401, "Company not found");
+      if (!company || !company.is_active) {
+        return errorResponse(res, 401, "Company not found or inactive subscription");
       }
 
       req.staff = staff;
@@ -92,8 +92,8 @@ const authenticateAny = async (req, res, next) => {
       req.userType = 'staff';
     } else if (decoded.type === 'company') {
       const company = await getCompanyById(decoded.id);
-      if (!company) {
-        return errorResponse(res, 401, "Invalid or expired token");
+      if (!company || !company.is_active) {
+        return errorResponse(res, 401, "Invalid or expired token or inactive subscription");
       }
       req.company = company;
       req.userType = 'admin';
