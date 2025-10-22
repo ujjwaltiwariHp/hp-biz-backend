@@ -35,7 +35,8 @@ app.use(helmet());
 const allowedOrigins = [
   "http://localhost:3000",
   "https://hp-biz-frontend.vercel.app",
-  "https://hp-biz-backend-production-46ce.up.railway.app"
+  "https://hp-biz-backend-production-46ce.up.railway.app",
+  "https://hp-biz-frontend-9caj6r6yq-ujjwals-projects-44afb61b.vercel.app"
 ];
 
 const corsOptions = {
