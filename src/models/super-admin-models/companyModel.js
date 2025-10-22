@@ -182,24 +182,29 @@ const getCompanyUsageReport = async (startDate, endDate) => {
       SELECT
         c.id, c.company_name, c.unique_company_id,
         sp.name as package_name,
-        COUNT(DISTINCT s.id)::integer as staff_count,
-        -- Count leads CREATED within the period
-        COUNT(DISTINCT l_created.id)::integer as leads_count,
-        -- Count activities LOGGED within the period, across all leads of the company
-        COUNT(DISTINCT la.id)::integer as activities_count
+
+        -- 1. Staff Count (Total active staff, independent of date range)
+        COALESCE(
+          (SELECT COUNT(s.id)::integer FROM staff s
+           WHERE s.company_id = c.id AND s.status = 'active'),
+        0) as staff_count,
+
+        -- 2. Leads Created in Period
+        COALESCE(
+          (SELECT COUNT(l.id)::integer FROM leads l
+           WHERE l.company_id = c.id AND l.created_at BETWEEN $1 AND $2),
+        0) as leads_count,
+
+        -- 3. Activities Logged in Period
+        COALESCE(
+          (SELECT COUNT(la.id)::integer FROM lead_activities la
+           WHERE la.created_at BETWEEN $1 AND $2
+           AND la.lead_id IN (SELECT id FROM leads WHERE company_id = c.id)),
+        0) as activities_count
+
       FROM companies c
       LEFT JOIN subscription_packages sp ON c.subscription_package_id = sp.id
-      LEFT JOIN staff s ON c.id = s.company_id
-
-      -- Join to count leads created in the period
-      LEFT JOIN leads l_created ON c.id = l_created.company_id AND l_created.created_at BETWEEN $1 AND $2
-
-      -- Join to count activities logged in the period (linked to ANY lead of the company)
-      LEFT JOIN leads l_all ON c.id = l_all.company_id
-      LEFT JOIN lead_activities la ON l_all.id = la.lead_id AND la.created_at BETWEEN $1 AND $2
-
-      GROUP BY c.id, c.company_name, c.unique_company_id, sp.name
-      ORDER BY leads_count DESC
+      ORDER BY leads_count DESC, activities_count DESC
     `;
     const result = await pool.query(query, [startDate, endDate]);
     return result.rows;
