@@ -46,13 +46,13 @@ const getCompanies = async (req, res) => {
     });
 
     return successResponse(res, "Companies retrieved successfully", {
-      companies: companiesData,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages,
-        totalCount: parseInt(totalCount),
-        hasNext: parseInt(page) < totalPages,
-        hasPrev: parseInt(page) > 1
+        companies: companiesData,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages,
+          totalCount: parseInt(totalCount),
+          hasNext: parseInt(page) < totalPages,
+          hasPrev: parseInt(page) > 1
       }
     });
   } catch (error) {
@@ -322,6 +322,7 @@ const getUsageReport = async (req, res) => {
 
     const summary = {
       totalCompanies: report.length,
+      // The total leads and activities are correctly calculated by summing the results from the model's SQL fix
       totalLeads: report.reduce((sum, company) => sum + company.leads_count, 0),
       totalActivities: report.reduce((sum, company) => sum + company.activities_count, 0)
     };

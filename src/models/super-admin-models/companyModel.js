@@ -183,13 +183,21 @@ const getCompanyUsageReport = async (startDate, endDate) => {
         c.id, c.company_name, c.unique_company_id,
         sp.name as package_name,
         COUNT(DISTINCT s.id)::integer as staff_count,
-        COUNT(DISTINCT l.id)::integer as leads_count,
+        -- Count leads CREATED within the period
+        COUNT(DISTINCT l_created.id)::integer as leads_count,
+        -- Count activities LOGGED within the period, across all leads of the company
         COUNT(DISTINCT la.id)::integer as activities_count
       FROM companies c
       LEFT JOIN subscription_packages sp ON c.subscription_package_id = sp.id
       LEFT JOIN staff s ON c.id = s.company_id
-      LEFT JOIN leads l ON c.id = l.company_id AND l.created_at BETWEEN $1 AND $2
-      LEFT JOIN lead_activities la ON l.id = la.lead_id AND la.created_at BETWEEN $1 AND $2
+
+      -- Join to count leads created in the period
+      LEFT JOIN leads l_created ON c.id = l_created.company_id AND l_created.created_at BETWEEN $1 AND $2
+
+      -- Join to count activities logged in the period (linked to ANY lead of the company)
+      LEFT JOIN leads l_all ON c.id = l_all.company_id
+      LEFT JOIN lead_activities la ON l_all.id = la.lead_id AND la.created_at BETWEEN $1 AND $2
+
       GROUP BY c.id, c.company_name, c.unique_company_id, sp.name
       ORDER BY leads_count DESC
     `;
