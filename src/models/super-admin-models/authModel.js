@@ -55,16 +55,31 @@ const createSuperAdmin = async (data) => {
 };
 
 const getSuperAdminByEmail = async (email) => {
-  // Simple query - get all columns
-  const { rows } = await pool.query(
-    'SELECT * FROM super_admins WHERE email = $1',
-    [email]
-  );
+  const columnCheck = await pool.query(`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_name = 'super_admins' AND column_name = 'status'
+  `);
+
+  const hasStatusColumn = columnCheck.rows.length > 0;
+
+  let query = `
+    SELECT
+        sa.id, sa.email, sa.password_hash, sa.name, sa.is_super_admin, sa.super_admin_role_id,
+        sar.role_name, sar.permissions::text as permissions,
+        sa.password_hash,
+        ${hasStatusColumn ? 'sa.status,' : ''}
+        TO_CHAR(sa.created_at AT TIME ZONE 'UTC', '${ISO_TIMESTAMP}') as created_at,
+        TO_CHAR(sa.updated_at AT TIME ZONE 'UTC', '${ISO_TIMESTAMP}') as updated_at
+    FROM super_admins sa
+    LEFT JOIN super_admin_roles sar ON sa.super_admin_role_id = sar.id
+    WHERE sa.email = $1
+  `;
+  const { rows } = await pool.query(query, [email]);
   return rows[0];
 };
 
 const getSuperAdminById = async (id) => {
-  // Check if status column exists first
   const columnCheck = await pool.query(`
     SELECT column_name
     FROM information_schema.columns
@@ -77,7 +92,7 @@ const getSuperAdminById = async (id) => {
   if (hasStatusColumn) {
     query = `
       SELECT sa.id, sa.email, sa.name, sa.status, sa.is_super_admin,
-             sa.super_admin_role_id, sar.role_name,
+             sa.super_admin_role_id, sar.role_name, sar.permissions::text as permissions,
              TO_CHAR(sa.created_at AT TIME ZONE 'UTC', '${ISO_TIMESTAMP}') as created_at,
              TO_CHAR(sa.updated_at AT TIME ZONE 'UTC', '${ISO_TIMESTAMP}') as updated_at
       FROM super_admins sa
@@ -87,7 +102,7 @@ const getSuperAdminById = async (id) => {
   } else {
     query = `
       SELECT sa.id, sa.email, sa.name, sa.is_super_admin,
-             sa.super_admin_role_id, sar.role_name,
+             sa.super_admin_role_id, sar.role_name, sar.permissions::text as permissions,
              TO_CHAR(sa.created_at AT TIME ZONE 'UTC', '${ISO_TIMESTAMP}') as created_at,
              TO_CHAR(sa.updated_at AT TIME ZONE 'UTC', '${ISO_TIMESTAMP}') as updated_at
       FROM super_admins sa

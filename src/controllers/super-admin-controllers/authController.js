@@ -68,14 +68,8 @@ const login = async (req, res) => {
       return errorResponse(res, 403, "Account is currently inactive");
     }
 
-    let permissions = { "all": ["view"] };
-    if (superAdmin.super_admin_role_id) {
-      const superAdminRole = await getSuperAdminRoleById(superAdmin.super_admin_role_id);
-      if (superAdminRole) {
-        permissions = safeParsePermissions(superAdminRole.permissions);
-
-      }
-    }
+    const rolePermissions = superAdmin.permissions;
+    let permissions = safeParsePermissions(rolePermissions);
 
 
     const token = generateToken({
@@ -161,12 +155,17 @@ const getProfile = async (req, res) => {
       return errorResponse(res, 404, "Super Admin profile not found");
     }
 
+    const parsedPermissions = superAdmin.permissions ? safeParsePermissions(superAdmin.permissions) : req.superAdmin.permissions;
+
     return successResponse(res, "Profile fetched successfully", {
       id: superAdmin.id,
       email: superAdmin.email,
       name: superAdmin.name,
-      is_super_admin: req.superAdmin.is_super_admin,
-      permissions: req.superAdmin.permissions,
+      status: superAdmin.status,
+      is_super_admin: superAdmin.is_super_admin,
+      super_admin_role_id: superAdmin.super_admin_role_id,
+      role_name: superAdmin.role_name,
+      permissions: parsedPermissions,
       created_at: superAdmin.created_at,
       updated_at: superAdmin.updated_at
     }, 200, req);

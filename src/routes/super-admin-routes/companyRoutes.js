@@ -40,10 +40,10 @@ router.post('/create',
 router.get('/', requireSuperAdminPermission('companies', 'view'), validateCompanyQuery, getCompanies);
 
 router.get('/usage-report', requireSuperAdminPermission('reports', 'view'), validateUsageReport, getUsageReport);
-router.get('/:id', requireSuperAdminPermission('companies', 'view'), validateCompanyId, getCompany);
+router.get('/:id', requireSuperAdminPermission('companies', 'view'), validateCompanyId, getCompany); // Ensure validation runs before controller
 router.put('/:id/activate', requireSuperAdminPermission('companies', 'update'), validateCompanyId, activateCompanyAccount);
 router.put('/:id/deactivate', requireSuperAdminPermission('companies', 'update'), validateCompanyId, deactivateCompanyAccount);
 router.put('/:id/subscription', requireSuperAdminPermission('companies', 'update'), validateSubscriptionUpdate, updateSubscription);
-router.delete('/:id', requireSuperAdminPermission('companies', 'delete'), validateCompanyId, removeCompany);
+router.delete('/:id', requireSuperAdminPermission('companies', 'delete'), validateCompanyId, removeCompany); // Ensure validation runs before controller
 
 module.exports = router;

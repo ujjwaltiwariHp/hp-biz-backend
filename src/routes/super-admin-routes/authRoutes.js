@@ -1,5 +1,5 @@
 const express = require("express");
-const router = express.Router();
+const router = express = require('express');
 
 const {
   login,
@@ -27,23 +27,23 @@ const { attachTimezoneForSuperAdmin } = require('../../middleware/timezoneMiddle
 const authChain = [authenticateSuperAdmin, attachTimezoneForSuperAdmin];
 router.post("/login", validateSuperAdminLogin, login);
 
-router.get("/profile", authChain, getProfile);
-router.put("/profile", authChain, validateProfileUpdate, updateProfile);
-router.put("/change-password", authChain, validatePasswordChange, changePassword);
+router.get("/profile", authChain, requireSuperAdminPermission('super_admins', 'view'), getProfile);
+
+router.put("/profile", authChain, requireSuperAdminPermission('super_admins', 'update'), validateProfileUpdate, updateProfile);
+
+router.put("/change-password", authChain, requireSuperAdminPermission('super_admins', 'update'), validatePasswordChange, changePassword);
+
 router.post("/logout", authChain, logout);
 
 
-router.get("/roles", authChain, requireSuperAdminPermission('super_admin_roles', 'view'), getSuperAdminRoles);
 
+router.get("/roles", authChain, requireSuperAdminPermission('super_admin_roles', 'view'), getSuperAdminRoles);
 router.put("/roles/:id/permissions", authChain, requireSuperAdminPermission('super_admin_roles', 'update'), updateSuperAdminRolePermissions);
 
 router.post("/create", authChain, requireSuperAdminPermission('super_admins', 'create'), validateSuperAdminCreation, createAdmin);
-
 router.get("/all", authChain, requireSuperAdminPermission('super_admins', 'view'), getAllAdmins);
 
-
 router.delete('/delete/:id', authChain, requireSuperAdminPermission('super_admins', 'delete'), deleteAdmin);
-
 router.put('/toggle-status/:id', authChain, requireSuperAdminPermission('super_admins', 'update'), toggleAdminStatus);
 
 module.exports = router;
