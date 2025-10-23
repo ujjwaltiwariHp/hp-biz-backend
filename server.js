@@ -32,22 +32,28 @@ const PORT = process.env.PORT || 3000;
 app.set('trust proxy', 1);
 app.use(helmet());
 
-// ALLOWED ORIGINS
 const allowedOrigins = [
   "http://localhost:3000",
+  "http://localhost:3001",
   "https://hp-biz-frontend.vercel.app",
   "https://hp-biz-backend-production-46ce.up.railway.app",
-  "https://hp-biz-frontend-3sj1-bmon9hoy9-ujjwals-projects-44afb61b.vercel.app"
+  "https://hp-biz-frontend-3gsj.vercel.app",
+  "https://hp-biz-frontend-3gsj-git-main-ujjwals-projects-44afb61b.vercel.app",
+  "https://hp-biz-frontend-3gsj-bmon9hoy9-ujjwals-projects-44afb61b.vercel.app"
 ];
 
-// CORS OPTIONS
+const isVercelPreviewUrl = (origin) => {
+  if (!origin) return false;
+  return origin.includes('vercel.app') && !origin.includes('localhost');
+};
+
 const corsOptions = {
   origin: function (origin, callback) {
     if (!origin) {
       return callback(null, true);
     }
 
-    if (allowedOrigins.includes(origin)) {
+    if (allowedOrigins.includes(origin) || isVercelPreviewUrl(origin)) {
       callback(null, true);
     } else {
       callback(new Error(`Origin ${origin} not allowed by CORS`));
@@ -67,7 +73,6 @@ app.use(express.urlencoded({ extended: true }));
 
 swaggerDocs(app, PORT);
 
-// HEALTH CHECK
 app.get('/health', (req, res) => {
   res.status(200).json({
     message: 'Server is running!',
@@ -78,7 +83,6 @@ app.get('/health', (req, res) => {
 
 app.use(globalLogActivity);
 
-// COMPANY ADMIN ROUTES
 app.use('/api/v1/auth', attachTimezone, authRoutes);
 app.use('/api/v1/staff', attachTimezone, staffRoutes);
 app.use('/api/v1/roles', attachTimezone, roleRoutes);
@@ -88,7 +92,6 @@ app.use('/api/v1/performance', attachTimezone, performanceRoutes);
 app.use('/api/v1/notifications', attachTimezone, notificationRoutes);
 app.use('/api/v1/logs', attachTimezone, loggingRoutes);
 
-// SUPER ADMIN ROUTES
 app.use('/api/v1/super-admin/auth', attachTimezoneForSuperAdmin, superAdminAuthRoutes);
 app.use('/api/v1/super-admin/companies', attachTimezoneForSuperAdmin, superAdminCompanyRoutes);
 app.use('/api/v1/super-admin/subscriptions', attachTimezoneForSuperAdmin, superAdminSubscriptionRoutes);
@@ -97,7 +100,6 @@ app.use('/api/v1/super-admin/invoices', attachTimezoneForSuperAdmin, superAdminI
 app.use('/api/v1/super-admin/notifications', attachTimezoneForSuperAdmin, superAdminnotificationRoutes);
 app.use('/api/v1/super-admin/logs', attachTimezoneForSuperAdmin, superAdminLoggingRoutes);
 
-// 404 HANDLER
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -108,7 +110,6 @@ app.use((req, res) => {
 
 app.use(logError);
 
-// GLOBAL ERROR HANDLER
 app.use((err, req, res, next) => {
   console.error('Error:', err.message);
   res.status(err.status || 500).json({
@@ -118,7 +119,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-// START SERVER
 const startServer = async () => {
   try {
     const result = await pool.query('SELECT NOW()');
