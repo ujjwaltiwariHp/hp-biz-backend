@@ -149,13 +149,12 @@ const createAdmin = async (req, res) => {
 
 const getProfile = async (req, res) => {
   try {
-    const superAdmin = await getSuperAdminById(req.superAdmin.id);
+    // Rely entirely on req.superAdmin populated by the middleware
+    const superAdmin = req.superAdmin;
 
     if (!superAdmin) {
       return errorResponse(res, 404, "Super Admin profile not found");
     }
-
-    const parsedPermissions = superAdmin.permissions ? safeParsePermissions(superAdmin.permissions) : req.superAdmin.permissions;
 
     return successResponse(res, "Profile fetched successfully", {
       id: superAdmin.id,
@@ -165,7 +164,7 @@ const getProfile = async (req, res) => {
       is_super_admin: superAdmin.is_super_admin,
       super_admin_role_id: superAdmin.super_admin_role_id,
       role_name: superAdmin.role_name,
-      permissions: parsedPermissions,
+      permissions: superAdmin.permissions,
       created_at: superAdmin.created_at,
       updated_at: superAdmin.updated_at
     }, 200, req);

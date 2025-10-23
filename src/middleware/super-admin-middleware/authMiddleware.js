@@ -2,6 +2,18 @@ const { verifyToken } = require('../../utils/jwtHelper');
 const { getSuperAdminById } = require('../../models/super-admin-models/authModel');
 const { errorResponse } = require('../../utils/errorResponse');
 
+const safeParsePermissions = (permissionsData) => {
+    if (typeof permissionsData === 'string') {
+        try {
+            return JSON.parse(permissionsData);
+        } catch (e) {
+
+            return { "all": ["view"] };
+        }
+    }
+    return permissionsData || { "all": ["view"] };
+};
+
 const authenticateSuperAdmin = async (req, res, next) => {
   try {
     const authHeader = req.header('Authorization');
@@ -20,11 +32,14 @@ const authenticateSuperAdmin = async (req, res, next) => {
     if (!superAdminProfile) {
       return errorResponse(res, 401, "Access denied. Super admin not found");
     }
+
+    const parsedPermissions = safeParsePermissions(superAdminProfile.permissions);
+
     req.superAdmin = {
         ...superAdminProfile,
         id: decoded.id,
         is_super_admin: decoded.is_super_admin,
-        permissions: decoded.permissions,
+        permissions: parsedPermissions,
     };
     req.token = token;
 
