@@ -55,6 +55,7 @@ const logActivity = (req, res, next) => {
       try {
         let staff_id = null;
         let company_id = null;
+        let super_admin_id = null;
 
         if (req.userType === 'staff' && req.staff) {
           staff_id = req.staff.id;
@@ -63,11 +64,12 @@ const logActivity = (req, res, next) => {
           company_id = req.company.id;
           staff_id = null;
         } else if (req.superAdmin) {
+            // FIX: Store SA ID in staff_id column when company_id is NULL for lookup
+            staff_id = req.superAdmin.id;
             company_id = null;
-            staff_id = null;
         }
 
-        if (!company_id && !req.superAdmin) {
+        if (!company_id && !staff_id) {
           return;
         }
 
@@ -329,18 +331,26 @@ const logSystemActivity = (level, category, message) => {
 
 const logError = async (err, req, res, next) => {
   try {
-    let staff_id = null;
+    let user_id = null;
+    let user_type = 'System';
     let company_id = null;
+    let email = 'N/A';
 
     if (req.superAdmin) {
+      user_id = req.superAdmin.id;
+      user_type = 'Super Admin';
       company_id = null;
-      staff_id = null;
-    } else if (req.userType === 'staff' && req.staff) {
-      staff_id = req.staff.id;
-      company_id = req.staff.company_id || (req.company ? req.company.id : null);
-    } else if (req.userType === 'admin' && req.company) {
+      email = req.superAdmin.email;
+    } else if (req.staff) {
+      user_id = req.staff.id;
+      user_type = 'Staff';
+      company_id = req.staff.company_id;
+      email = req.staff.email;
+    } else if (req.company) {
+      user_id = req.company.id;
+      user_type = 'Company Admin';
       company_id = req.company.id;
-      staff_id = null;
+      email = req.company.admin_email;
     }
 
     const rawIP = getClientIP(req);
@@ -348,10 +358,10 @@ const logError = async (err, req, res, next) => {
 
     const logData = {
       company_id,
-      staff_id,
+      staff_id: user_id,
       log_level: 'ERROR',
       log_category: 'api',
-      message: `Error: ${err.message} - ${req.method} ${req.originalUrl} - IP: ${ip_address} - Stack: ${err.stack?.substring(0, 500)}`
+      message: `Error: ${err.message} | User: ${email} (${user_type}, ID: ${user_id}) | ${req.method} ${req.originalUrl} | IP: ${ip_address} | Stack: ${err.stack?.substring(0, 500)}`
     };
 
     await logSystemEvent(logData);
@@ -362,48 +372,11 @@ const logError = async (err, req, res, next) => {
   next(err);
 };
 
-const logSecurityEvent = (eventType, message, severity = 'WARNING') => {
-  return async (req, res, next) => {
-    try {
-      let staff_id = null;
-      let company_id = null;
-
-      if (req.superAdmin) {
-        company_id = null;
-        staff_id = null;
-      } else if (req.userType === 'staff' && req.staff) {
-        staff_id = req.staff.id;
-        company_id = req.staff.company_id || (req.company ? req.company.id : null);
-      } else if (req.userType === 'admin' && req.company) {
-        company_id = req.company.id;
-        staff_id = null;
-      }
-
-      const rawIP = getClientIP(req);
-      const ip_address = normalizeIP(rawIP);
-
-      const logData = {
-        company_id,
-        staff_id,
-        log_level: severity.toUpperCase(),
-        log_category: 'security',
-        message: `${eventType}: ${message} - IP: ${ip_address} - User-Agent: ${req.get('User-Agent') || 'Unknown'}`
-      };
-
-      await logSystemEvent(logData);
-    } catch (error) {
-      console.error('Failed to log security event:', error);
-    }
-
-    next();
-  };
-};
-
 module.exports = {
   logActivity,
   globalLogActivity,
   logSystemActivity,
   logError,
-  logSecurityEvent,
+  logSecurityEvent: (eventType, message, severity) => logSystemActivity(severity, 'security', `${eventType}: ${message}`),
   getClientIP
 };

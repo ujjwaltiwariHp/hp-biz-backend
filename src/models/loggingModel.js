@@ -105,13 +105,14 @@ const getUserActivityLogs = async (filters = {}) => {
       TO_CHAR(ual.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as created_at,
 
       CASE
-        WHEN ual.staff_id IS NULL AND ual.company_id IS NOT NULL THEN COALESCE(c.admin_name, 'Company Admin')
         WHEN ual.company_id IS NULL THEN COALESCE(sa.name, 'Super Admin')
+        WHEN ual.staff_id IS NULL THEN COALESCE(c.admin_name, 'Company Admin')
         ELSE COALESCE(s.first_name, '')
       END as first_name,
 
       CASE
-        WHEN ual.staff_id IS NULL OR ual.company_id IS NULL THEN ''
+        WHEN ual.company_id IS NULL THEN ''
+        WHEN ual.staff_id IS NULL THEN ''
         ELSE COALESCE(s.last_name, '')
       END as last_name,
 
@@ -126,7 +127,7 @@ const getUserActivityLogs = async (filters = {}) => {
     FROM user_activity_logs ual
     LEFT JOIN staff s ON ual.staff_id = s.id AND ual.company_id IS NOT NULL
     LEFT JOIN companies c ON ual.company_id = c.id
-    LEFT JOIN super_admins sa ON ual.company_id IS NULL AND ual.staff_id IS NULL
+    LEFT JOIN super_admins sa ON ual.company_id IS NULL AND ual.staff_id = sa.id -- FIX: Correctly join Super Admins on staff_id when company_id is NULL
     WHERE 1=1
   `;
 
