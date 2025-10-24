@@ -3,6 +3,7 @@ const { errorResponse } = require('../../utils/errorResponse');
 const checkPermission = (permissions, resource, action) => {
     // If no permissions object, deny access
     if (!permissions || typeof permissions !== 'object') {
+        console.warn('No permissions object found');
         return false;
     }
 
@@ -27,13 +28,10 @@ const checkPermission = (permissions, resource, action) => {
             if (allowedActions.includes('crud')) {
                 return true;
             }
-            // Special case: 'view' action allows viewing
-            if (action === 'view' && allowedActions.includes('view')) {
-                return true;
-            }
         }
     }
 
+    console.warn(`Permission denied: resource="${resource}", action="${action}", available permissions:`, permissions);
     return false;
 };
 
