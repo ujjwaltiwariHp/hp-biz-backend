@@ -5,9 +5,11 @@ const { errorResponse } = require('../../utils/errorResponse');
 const safeParsePermissions = (permissionsData) => {
     if (typeof permissionsData === 'string') {
         try {
+            if (!permissionsData.trim()) {
+                return { "all": ["view"] };
+            }
             return JSON.parse(permissionsData);
         } catch (e) {
-
             return { "all": ["view"] };
         }
     }
