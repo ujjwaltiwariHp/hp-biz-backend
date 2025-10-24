@@ -23,30 +23,30 @@ const { requireSuperAdminPermission } = require('../../middleware/super-admin-mi
 router.use(authenticateSuperAdmin);
 
 
-router.get('/', requireSuperAdminPermission('subscription', 'view'), validatePackageQuery, getPackages);
-router.get('/:id', requireSuperAdminPermission('subscription', 'view'), validatePackageId, getPackage);
+router.get('/', requireSuperAdminPermission('subscriptions', 'view'), validatePackageQuery, getPackages);
+router.get('/:id', requireSuperAdminPermission('subscriptions', 'view'), validatePackageId, getPackage);
 
 
 router.post('/',
-    requireSuperAdminPermission('subscription', 'create'),
+    requireSuperAdminPermission('subscriptions', 'create'),
     validatePackageCreation,
     createSubscriptionPackage
 );
 
 router.put('/:id',
-    requireSuperAdminPermission('subscription', 'update'),
+    requireSuperAdminPermission('subscriptions', 'update'),
     validatePackageUpdate,
     updateSubscriptionPackage
 );
 
 router.put('/:id/toggle-status',
-    requireSuperAdminPermission('subscription', 'update'),
+    requireSuperAdminPermission('subscriptions', 'update'),
     validatePackageId,
     toggleStatus
 );
 
 router.delete('/:id',
-    requireSuperAdminPermission('subscription', 'delete'),
+    requireSuperAdminPermission('subscriptions', 'delete'),
     validatePackageId,
     removePackage
 );

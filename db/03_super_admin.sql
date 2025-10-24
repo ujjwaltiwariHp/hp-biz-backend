@@ -54,31 +54,7 @@ ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active';
 CREATE INDEX IF NOT EXISTS idx_super_admins_status
 ON super_admins(status);
 
-UPDATE super_admin_roles
-SET permissions = '
-{
-  "dashboard": ["view"],
-  "companies": ["view"],
-  "subscription": ["view"],
-  "payments": ["view"],
-  "invoices": ["view"],
-  "super_admins": ["view"],
-  "reports": ["view"]
-}'::json,
-updated_at = CURRENT_TIMESTAMP
-WHERE role_name = 'Sub-Admin (View)';
 
-UPDATE super_admin_roles
-SET permissions = '
-{
-
-  "logging": ["view"]
-}'::json,
-updated_at = CURRENT_TIMESTAMP
-WHERE role_name = 'Sub-Admin (View)';
-
-
--- Update Sub-Admin (View) role with proper permissions
 UPDATE super_admin_roles
 SET permissions = '
 {
@@ -90,12 +66,9 @@ SET permissions = '
   "notifications": ["view"],
   "logging": ["view"],
   "super_admin_roles": ["view"],
-  "reports": ["view"]
+  "reports": ["view"],
+  "super_admins": ["view"],
+  "subscriptions": ["view"]
 }'::json,
 updated_at = CURRENT_TIMESTAMP
-WHERE role_name = 'Sub-Admin (View)';
-
--- Verify the update
-SELECT id, role_name, permissions
-FROM super_admin_roles
 WHERE role_name = 'Sub-Admin (View)';
