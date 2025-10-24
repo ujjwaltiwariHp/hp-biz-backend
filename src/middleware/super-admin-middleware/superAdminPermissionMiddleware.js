@@ -1,15 +1,27 @@
 const { errorResponse } = require('../../utils/errorResponse');
 
 const checkPermission = (permissions, resource, action) => {
-    if (permissions.all && Array.isArray(permissions.all) && permissions.all.includes('crud')) {
-        return true;
+    if (!permissions || typeof permissions !== 'object') {
+        return false;
+    }
+
+    if (permissions.all && Array.isArray(permissions.all)) {
+        if (permissions.all.includes('crud') || permissions.all.includes(action)) {
+            return true;
+        }
     }
 
     if (permissions[resource]) {
         const allowedActions = permissions[resource];
 
         if (Array.isArray(allowedActions)) {
-            if (allowedActions.includes(action) || allowedActions.includes('crud')) {
+            if (allowedActions.includes(action)) {
+                return true;
+            }
+            if (allowedActions.includes('crud')) {
+                return true;
+            }
+            if (action === 'view' && allowedActions.includes('view')) {
                 return true;
             }
         }
@@ -30,10 +42,12 @@ const requireSuperAdminPermission = (resource, action) => {
             return next();
         }
 
-        return errorResponse(res, 403, `Permission Denied. You lack ${resource}:${action} access.`);
+        // Provide more helpful error message
+        return errorResponse(res, 403, `Permission Denied. You do not have ${action} access to ${resource}.`);
     };
 };
 
 module.exports = {
     requireSuperAdminPermission,
+    checkPermission
 };

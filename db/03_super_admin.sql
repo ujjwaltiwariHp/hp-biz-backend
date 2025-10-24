@@ -76,3 +76,26 @@ SET permissions = '
 }'::json,
 updated_at = CURRENT_TIMESTAMP
 WHERE role_name = 'Sub-Admin (View)';
+
+
+-- Update Sub-Admin (View) role with proper permissions
+UPDATE super_admin_roles
+SET permissions = '
+{
+  "dashboard": ["view"],
+  "companies": ["view"],
+  "subscription": ["view"],
+  "payments": ["view"],
+  "invoices": ["view"],
+  "notifications": ["view"],
+  "logging": ["view"],
+  "super_admin_roles": ["view"],
+  "reports": ["view"]
+}'::json,
+updated_at = CURRENT_TIMESTAMP
+WHERE role_name = 'Sub-Admin (View)';
+
+-- Verify the update
+SELECT id, role_name, permissions
+FROM super_admin_roles
+WHERE role_name = 'Sub-Admin (View)';
