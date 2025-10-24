@@ -53,3 +53,26 @@ ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active';
 
 CREATE INDEX IF NOT EXISTS idx_super_admins_status
 ON super_admins(status);
+
+UPDATE super_admin_roles
+SET permissions = '
+{
+  "dashboard": ["view"],
+  "companies": ["view"],
+  "subscription": ["view"],
+  "payments": ["view"],
+  "invoices": ["view"],
+  "super_admins": ["view"],
+  "reports": ["view"]
+}'::json,
+updated_at = CURRENT_TIMESTAMP
+WHERE role_name = 'Sub-Admin (View)';
+
+UPDATE super_admin_roles
+SET permissions = '
+{
+
+  "logging": ["view"]
+}'::json,
+updated_at = CURRENT_TIMESTAMP
+WHERE role_name = 'Sub-Admin (View)';

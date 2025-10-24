@@ -29,9 +29,6 @@ const requireSuperAdminPermission = (resource, action) => {
         if (checkPermission(permissions, resource, action)) {
             return next();
         }
-        if (action === 'view' && permissions[resource] && Array.isArray(permissions[resource]) && permissions[resource].includes('view')) {
-             return next();
-        }
 
         return errorResponse(res, 403, `Permission Denied. You lack ${resource}:${action} access.`);
     };

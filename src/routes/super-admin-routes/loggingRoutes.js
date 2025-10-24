@@ -7,13 +7,15 @@ const {
   exportAllCompanyLogs
 } = require('../../controllers/super-admin-controllers/loggingController');
 const { authenticateSuperAdmin } = require('../../middleware/super-admin-middleware/authMiddleware');
+const { requireSuperAdminPermission } = require('../../middleware/super-admin-middleware/superAdminPermissionMiddleware'); // ADDED IMPORT
 
-router.get('/system', authenticateSuperAdmin, getAllSystemLogs);
+// All are view/reporting functions, so all require 'view' permission.
+router.get('/system', authenticateSuperAdmin, requireSuperAdminPermission('logging', 'view'), getAllSystemLogs);
 
-router.get('/export', authenticateSuperAdmin, exportAllCompanyLogs);
+router.get('/export', authenticateSuperAdmin, requireSuperAdminPermission('logging', 'view'), exportAllCompanyLogs);
 
-router.get('/activity', authenticateSuperAdmin, getAllCompanyLogs);
+router.get('/activity', authenticateSuperAdmin, requireSuperAdminPermission('logging', 'view'), getAllCompanyLogs);
 
-router.get('/company/:companyId/activity', authenticateSuperAdmin, getCompanyLogs);
+router.get('/company/:companyId/activity', authenticateSuperAdmin, requireSuperAdminPermission('logging', 'view'), getCompanyLogs);
 
 module.exports = router;

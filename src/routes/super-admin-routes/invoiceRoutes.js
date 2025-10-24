@@ -19,21 +19,21 @@ const {
 } = require('../../middleware/super-admin-middleware/invoiceValidation');
 
 const { authenticateSuperAdmin } = require('../../middleware/super-admin-middleware/authMiddleware');
+const { requireSuperAdminPermission } = require('../../middleware/super-admin-middleware/superAdminPermissionMiddleware'); // ADDED IMPORT
 
 router.use(authenticateSuperAdmin);
 
-router.post('/generate', validateInvoiceGenerate, generateInvoice);
+// CRUD routes (Super-Admin only)
+router.post('/generate', requireSuperAdminPermission('invoices', 'create'), validateInvoiceGenerate, generateInvoice);
 
-router.get('/get', validateInvoiceQuery, getAllInvoices);
+// View routes (Sub-Admin allowed)
+router.get('/get', requireSuperAdminPermission('invoices', 'view'), validateInvoiceQuery, getAllInvoices);
+router.get('/get/:id', requireSuperAdminPermission('invoices', 'view'), validateInvoiceId, getInvoiceDetails);
+router.get('/:id/download', requireSuperAdminPermission('invoices', 'view'), validateInvoiceId, downloadInvoice);
 
-router.get('/get/:id', validateInvoiceId, getInvoiceDetails);
-
-router.get('/:id/download', validateInvoiceId, downloadInvoice);
-
-router.post('/:id/send', validateInvoiceId, sendInvoiceEmailController);
-
-router.put('/:id', validateInvoiceUpdate, updateInvoiceDetails);
-
-router.delete('/delete/:id', validateInvoiceId, removeInvoice);
+// CRUD routes (Super-Admin only)
+router.post('/:id/send', requireSuperAdminPermission('invoices', 'update'), validateInvoiceId, sendInvoiceEmailController);
+router.put('/:id', requireSuperAdminPermission('invoices', 'update'), validateInvoiceUpdate, updateInvoiceDetails);
+router.delete('/delete/:id', requireSuperAdminPermission('invoices', 'delete'), validateInvoiceId, removeInvoice);
 
 module.exports = router;
