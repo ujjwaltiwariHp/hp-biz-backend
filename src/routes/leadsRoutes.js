@@ -100,10 +100,10 @@ router.get('/:id/tags', ...permissionChain, getLeadTagsByLeadId);
 router.get('/:id/details', ...subscriptionChain, getLeadDetails);
 router.get('/:id/history', ...subscriptionChain, getLeadHistory);
 
-router.get('/follow-ups/:id', ...subscriptionChain, getLeadFollowUps);
+router.get('/follow-ups/:leadsId', ...subscriptionChain, getLeadFollowUps);
 router.post('/:id/follow-ups/create', ...permissionChain, logActivity, createFollowUp);
 router.get('/follow-ups', ...subscriptionChain, getAllFollowUps);
-router.get('/follow-ups/:id', ...subscriptionChain, getFollowUpById);
+router.get(':followUpId/follow-ups/', ...subscriptionChain, getFollowUpById);
 router.put('/follow-ups/:id/update', ...permissionChain, updateFollowUp);
 router.delete('/follow-ups/:id/delete', ...permissionChain, logActivity, deleteFollowUp);
 router.patch('/follow-ups/:id/complete', ...permissionChain, logActivity, markFollowUpComplete);

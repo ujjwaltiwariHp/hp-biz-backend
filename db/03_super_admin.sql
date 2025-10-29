@@ -72,3 +72,41 @@ SET permissions = '
 }'::json,
 updated_at = CURRENT_TIMESTAMP
 WHERE role_name = 'Sub-Admin (View)';
+
+
+
+-- Step 1: Reset all is_super_admin flags based on their actual role
+UPDATE super_admins sa
+SET is_super_admin = (
+    CASE
+        WHEN sar.role_name = 'Super Admin' THEN TRUE
+        ELSE FALSE
+    END
+)
+FROM super_admin_roles sar
+WHERE sa.super_admin_role_id = sar.id;
+
+-- Step 2: Handle any super_admins without a role (set to FALSE)
+UPDATE super_admins
+SET is_super_admin = FALSE
+WHERE super_admin_role_id IS NULL;
+
+-- Step 3: Verify the fix
+SELECT
+    sa.id,
+    sa.email,
+    sa.is_super_admin,
+    sar.role_name,
+    sar.permissions
+FROM super_admins sa
+LEFT JOIN super_admin_roles sar ON sa.super_admin_role_id = sar.id
+ORDER BY sa.id;
+
+-- Step 4: Check role distribution
+SELECT
+    sar.role_name,
+    COUNT(sa.id) as admin_count
+FROM super_admin_roles sar
+LEFT JOIN super_admins sa ON sa.super_admin_role_id = sar.id
+GROUP BY sar.role_name
+ORDER BY sar.role_name;
