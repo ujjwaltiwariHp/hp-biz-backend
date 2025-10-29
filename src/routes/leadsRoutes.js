@@ -66,13 +66,11 @@ router.post('/statuses/create', ...permissionChain, logActivity, createLeadStatu
 router.put('/statuses/update/:id', ...permissionChain, updateLeadStatusRecord);
 router.delete('/statuses/delete/:id', ...permissionChain, logActivity, deleteLeadStatus);
 
-// Lead Creation with Limit Check
 router.post('/create',
     ...permissionChain,
     checkLeadLimit,
     createLead
 );
-// Bulk Upload with Feature and Limit Check
 router.post('/bulk-upload',
     ...permissionChain,
     requireFeature('bulk_upload'),
@@ -100,13 +98,16 @@ router.get('/:id/tags', ...permissionChain, getLeadTagsByLeadId);
 router.get('/:id/details', ...subscriptionChain, getLeadDetails);
 router.get('/:id/history', ...subscriptionChain, getLeadHistory);
 
-router.get('/follow-ups/:leadsId', ...subscriptionChain, getLeadFollowUps);
+router.get('/:id/follow-ups', ...subscriptionChain, getLeadFollowUps);
 router.post('/:id/follow-ups/create', ...permissionChain, logActivity, createFollowUp);
+
+router.get('/follow-ups/details/:id', ...subscriptionChain, getFollowUpById);
 router.get('/follow-ups', ...subscriptionChain, getAllFollowUps);
-router.get('/follow-ups/:followUpId', ...subscriptionChain, getFollowUpById);
+
 router.put('/follow-ups/:id/update', ...permissionChain, updateFollowUp);
 router.delete('/follow-ups/:id/delete', ...permissionChain, logActivity, deleteFollowUp);
 router.patch('/follow-ups/:id/complete', ...permissionChain, logActivity, markFollowUpComplete);
+
 
 router.put('/leads/:leadId/followups/:followUpId', updateLeadFollowUp);
 router.delete('/leads/:leadId/followups/:followUpId', deleteLeadFollowUp);
