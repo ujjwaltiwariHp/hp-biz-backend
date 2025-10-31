@@ -11,14 +11,22 @@ const {
   getValidResetOTP,
   invalidateSession,
   updateCompanyVerification,
-  assignTrialSubscription,
   getCompanyById,
 } = require('../models/authModel');
 
 const { staffLogin: staffLoginModel } = require('../models/staffModel');
 const Staff = require("../models/staffModel");
 
-const { getTrialPackage } = require('../models/super-admin-models/subscriptionModel');
+const { updateSubscriptionStatusManual } = require('../models/super-admin-models/companyModel');
+const { getPackageById } = require('../models/super-admin-models/subscriptionModel');
+const { createInvoice, getInvoiceById, updateInvoice } = require('../models/super-admin-models/invoiceModel');
+const { sendInvoiceEmail } = require('../services/emailService');
+const { calculateTaxAndTotal } = require('../utils/calculationHelper');
+const { calculateEndDate } = require('../utils/subscriptionHelper');
+const { logSystemEvent } = require('../models/loggingModel');
+const { generateInvoicePdf } = require('../utils/pdfGenerator');
+
+const { getActivePackages} = require('../models/super-admin-models/subscriptionModel');
 const { getCurrentStaffCount } = require('../models/staffModel');
 const { getLeadsCreatedThisMonth, getLeadsTotalCount } = require('../models/leadsModel');
 
@@ -38,18 +46,7 @@ const {
 const { createNotification } = require('../../src/models/super-admin-models/notificationModel');
 const moment = require('moment');
 
-const assignInitialTrial = async (company) => {
-  const trialPackage = await getTrialPackage();
 
-  if (!trialPackage) {
-    console.warn("No active trial package found. Skipping trial assignment for new company.");
-    return;
-  }
-
-  const duration = trialPackage.trial_duration_days || 7;
-  const endDate = moment().add(duration, 'days').toISOString();
-  await assignTrialSubscription(company.id, trialPackage.id, endDate);
-};
 
 const signup = async (req, res) => {
   try {
@@ -113,10 +110,7 @@ const verifyOTP = async (req, res) => {
     await markOTPAsUsed(otpRecord.id);
 
     if (otpRecord.otp_type === 'signup') {
-      const company = await updateCompanyVerification(email, true);
-      if (company && !company.subscription_package_id) {
-        await assignInitialTrial(company);
-      }
+      await updateCompanyVerification(email, true);
     }
 
     return successResponse(res, "OTP verified successfully", {}, 200, req);
@@ -144,11 +138,7 @@ const setPassword = async (req, res) => {
     }
 
     await updateCompanyPassword(email, password);
-    const updatedCompany = await updateCompanyVerification(email, true);
-
-    if (updatedCompany && !updatedCompany.subscription_package_id) {
-      await assignInitialTrial(updatedCompany);
-    }
+    await updateCompanyVerification(email, true);
 
     return successResponse(res, "Password set successfully. You can now login.", {}, 200, req);
 
@@ -156,6 +146,117 @@ const setPassword = async (req, res) => {
     return errorResponse(res, 500, "Internal server error");
   }
 };
+
+const getAvailablePackages = async (req, res) => {
+  try {
+    const packages = await getActivePackages();
+
+    const availablePackages = packages.filter(p => {
+        return p.is_active;
+    });
+
+    return successResponse(res, "Available subscription packages retrieved successfully", {
+      packages: availablePackages
+    }, 200, req);
+  } catch (error) {
+    console.error('Get Available Packages Error:', error);
+    return errorResponse(res, 500, "Failed to retrieve subscription packages for selection.");
+  }
+};
+
+
+const selectInitialSubscription = async (req, res) => {
+  const companyId = req.company.id;
+  const { package_id, duration_type } = req.body;
+  const timezone = req.timezone;
+
+  try {
+    const company = req.company;
+
+    if (company.subscription_package_id) {
+      return errorResponse(res, 400, "Subscription already selected for this company.");
+    }
+
+    const packageData = await getPackageById(package_id);
+
+    if (!packageData || !packageData.is_active) {
+      return errorResponse(res, 404, "Invalid or inactive subscription package selected.");
+    }
+
+    const isFree = parseFloat(packageData.price) <= 0 || packageData.is_trial;
+
+    if (isFree) {
+      const duration = packageData.trial_duration_days || 7;
+      const startDate = moment().tz(timezone).startOf('day').toISOString();
+      const endDate = moment().tz(timezone).add(duration, 'days').endOf('day').toISOString();
+
+      await updateSubscriptionStatusManual(companyId, null, 'approve', {
+        subscription_package_id: package_id,
+        subscription_start_date: startDate,
+        subscription_end_date: endDate
+      });
+
+      await logSystemEvent({
+          company_id: companyId,
+          log_level: 'INFO',
+          log_category: 'SUBSCRIPTION',
+          message: `Free subscription selected and immediately activated: ${packageData.name}.`
+      });
+
+      return successResponse(res, "Free subscription activated successfully.", { package_name: packageData.name }, 200, req);
+
+    } else {
+
+      const baseAmount = parseFloat(packageData.price);
+      const { tax_amount, total_amount } = calculateTaxAndTotal(baseAmount);
+
+      const startDate = moment().tz(timezone).startOf('day');
+      const endDate = calculateEndDate(startDate, duration_type, 1, timezone);
+      const dueDate = moment().tz(timezone).add(7, 'days').endOf('day');
+
+      await updateSubscriptionStatusManual(companyId, null, 'pending', {
+        subscription_package_id: package_id,
+        subscription_start_date: startDate.toISOString(),
+        subscription_end_date: endDate.toISOString()
+      });
+      const newInvoice = await createInvoice({
+        company_id: companyId,
+        subscription_package_id: package_id,
+        amount: baseAmount,
+        tax_amount,
+        total_amount,
+        currency: 'USD',
+        billing_period_start: startDate.toISOString(),
+        billing_period_end: endDate.toISOString(),
+        due_date: dueDate.toISOString(),
+        status: 'pending'
+      });
+
+      const invoiceData = await getInvoiceById(newInvoice.id);
+      const pdfBuffer = await generateInvoicePdf(invoiceData);
+      await sendInvoiceEmail(invoiceData, pdfBuffer);
+
+      await updateInvoice(newInvoice.id, { status: 'sent' });
+
+      await logSystemEvent({
+          company_id: companyId,
+          log_level: 'INFO',
+          log_category: 'SUBSCRIPTION',
+          message: `Paid subscription request initiated. Invoice #${newInvoice.invoice_number} sent. Status: pending.`
+      });
+
+      return successResponse(res, "Paid subscription requested. Invoice sent. Awaiting admin payment approval.", {
+          invoice_number: newInvoice.invoice_number,
+          amount: newInvoice.total_amount
+      }, 200, req);
+    }
+
+  } catch (error) {
+    console.error('Select Initial Subscription Error:', error);
+    return errorResponse(res, 500, 'Failed to process subscription selection.');
+  }
+};
+
 
 const login = async (req, res) => {
   try {
@@ -175,8 +276,10 @@ const login = async (req, res) => {
         const detailedCompany = await getCompanyById(company.id);
         const subscriptionEndDate = moment(detailedCompany.subscription_end_date);
 
-        if (!detailedCompany.is_active || subscriptionEndDate.isBefore(moment())) {
-          return errorResponse(res, 403, "Your company subscription is inactive or expired. Please contact support.");
+        const requiresPlanSelection = !detailedCompany.subscription_package_id;
+
+        if (!requiresPlanSelection && (!detailedCompany.is_active || subscriptionEndDate.isBefore(moment()))) {
+          return errorResponse(res, 403, "Your company subscription is inactive or expired. Please renew your plan.");
         }
 
         const token = generateToken({
@@ -195,7 +298,8 @@ const login = async (req, res) => {
             email_verified: detailedCompany.email_verified,
             created_at: detailedCompany.created_at,
             subscription_end_date: detailedCompany.subscription_end_date,
-            is_active: detailedCompany.is_active
+            is_active: detailedCompany.is_active,
+            requires_plan_selection: requiresPlanSelection
           }
         };
 
@@ -583,5 +687,7 @@ module.exports = {
   resetPassword,
   logout,
   getTimezones,
-  getCommonTimezones: getCommonTimezonesController
+  getCommonTimezones: getCommonTimezonesController,
+  getAvailablePackages,
+  selectInitialSubscription
 };

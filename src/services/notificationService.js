@@ -1,4 +1,4 @@
-const Notifications = require("../models/notificationsModel"); // Original Staff/Company Notification Model
+const Notifications = require("../models/notificationsModel");
 const { createNotification: createSuperAdminNotification } = require('../models/super-admin-models/notificationModel'); // NEW IMPORT for Super Admin table
 const { sendNotificationEmail, sendAdminNotificationEmail, sendSubscriptionActivationEmail } = require("./emailService");
 const pool = require("../config/database");
@@ -503,20 +503,16 @@ const createLeadUpdateNotification = async (leadId, updatedBy, companyId, update
   }
 };
 
-const createSubscriptionActivationNotification = async (companyData, packageData, endDate, superAdminName) => {
+const createSubscriptionActivationNotification = async (companyData, packageData, endDate, superAdminName, invoiceData, pdfBuffer) => {
   try {
     const { id: companyId, company_name } = companyData;
     const packageName = packageData.name;
     const formattedEndDate = new Date(endDate).toLocaleDateString();
 
-    await sendSubscriptionActivationEmail(companyData, packageData, endDate);
-
-    // FIX: Call the correct Super Admin Notification Model (imported as createSuperAdminNotification in notificationService.js)
-    // The previous call was causing the 'null value in column "type"' error in the staff/company notifications table.
+    await sendSubscriptionActivationEmail(companyData, packageData, endDate, invoiceData, pdfBuffer);
 
     const notificationMessage = `Subscription activated for ${company_name} on ${packageName} plan until ${formattedEndDate}. Approved by ${superAdminName}.`;
 
-    // Assuming the user has the fixed notificationService.js:
     const { createNotification: createSuperAdminNotification } = require('../models/super-admin-models/notificationModel');
 
     await createSuperAdminNotification({
@@ -529,14 +525,13 @@ const createSubscriptionActivationNotification = async (companyData, packageData
       metadata: {
         package_name: packageName,
         end_date: endDate,
-        approved_by: superAdminName
+        approved_by: superAdminName,
+        invoice_number: invoiceData.invoice_number
       }
     });
 
   } catch (error) {
-    console.error('Error creating subscription activation notification:', error);
-    // CRITICAL: Re-throw the error to be handled by the controller's outer catch block
-    throw error;
+    console.error('Error creating subscription activation notification (Notification Log Failed):', error);
   }
 };
 

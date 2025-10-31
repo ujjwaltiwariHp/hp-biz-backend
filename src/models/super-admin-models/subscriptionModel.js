@@ -31,6 +31,13 @@ const getAllPackages = async () => {
 
 const getPackageById = async (id) => {
   try {
+    const packageId = parseInt(id);
+
+    // FIX: Check for NaN/invalid ID before querying PostgreSQL
+    if (isNaN(packageId) || packageId <= 0) {
+        return null;
+    }
+
     const query = `
       SELECT
         sp.*,
@@ -40,7 +47,7 @@ const getPackageById = async (id) => {
       WHERE sp.id = $1
       GROUP BY sp.id
     `;
-    const result = await pool.query(query, [parseInt(id)]);
+    const result = await pool.query(query, [packageId]);
     return jsonParse(result.rows[0]);
   } catch (error) {
     throw error;

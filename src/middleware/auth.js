@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const { getCompanyById } = require('../models/authModel');
 const { getStaffById } = require('../models/staffModel');
 const { errorResponse } = require('../utils/errorResponse');
+const moment = require('moment');
 
 const authenticate = async (req, res, next) => {
   try {
@@ -17,8 +18,20 @@ const authenticate = async (req, res, next) => {
     }
 
     const company = await getCompanyById(decoded.id);
-    if (!company || !company.is_active) {
+    if (!company) {
       return errorResponse(res, 401, "Invalid or expired token or inactive subscription");
+    }
+
+    if (!company.email_verified) {
+        return errorResponse(res, 403, "Account not verified.");
+    }
+
+    const requiresPlanSelection = !company.subscription_package_id;
+    const subscriptionEndDate = moment(company.subscription_end_date);
+
+    if (requiresPlanSelection) {
+    } else if (!company.is_active || subscriptionEndDate.isBefore(moment())) {
+        return errorResponse(res, 403, "Subscription inactive or expired. Please renew your plan.");
     }
 
     req.company = company;
@@ -92,9 +105,11 @@ const authenticateAny = async (req, res, next) => {
       req.userType = 'staff';
     } else if (decoded.type === 'company') {
       const company = await getCompanyById(decoded.id);
-      if (!company || !company.is_active) {
+
+      if (!company || (!company.is_active && company.subscription_package_id)) {
         return errorResponse(res, 401, "Invalid or expired token or inactive subscription");
       }
+
       req.company = company;
       req.userType = 'admin';
     } else {

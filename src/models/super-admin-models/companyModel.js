@@ -190,8 +190,23 @@ const updateSubscriptionStatusManual = async (companyId, adminId, action, subscr
         queryValues.push(newStatus);
     } else if (action === 'pending') {
         newStatus = 'pending';
+
+        if (!subscription_package_id || !subscription_start_date || !subscription_end_date) {
+             throw new Error('Missing package ID or dates for pending status update.');
+        }
+
         queryFields.push(`subscription_status = $${paramCount++}`);
         queryValues.push(newStatus);
+
+        queryFields.push(`subscription_package_id = $${paramCount++}`);
+        queryValues.push(parseInt(subscription_package_id));
+
+        queryFields.push(`subscription_start_date = $${paramCount++}`);
+        queryValues.push(subscription_start_date);
+
+        queryFields.push(`subscription_end_date = $${paramCount++}`);
+        queryValues.push(subscription_end_date);
+
     } else {
       throw new Error(`Invalid action: ${action}`);
     }
@@ -307,10 +322,6 @@ const createCompanyBySuperAdmin = async (data) => {
         admin_email,
         admin_name,
         password,
-        phone,
-        address,
-        industry,
-        company_size,
         subscription_package_id,
         subscription_start_date,
         subscription_end_date,
@@ -348,7 +359,7 @@ const createCompanyBySuperAdmin = async (data) => {
 
     const values = [
         unique_company_id, company_name, admin_email, hashedPassword, admin_name,
-        phone || null, address || null, industry || null, company_size || null,
+        otherData.phone || null, otherData.address || null, otherData.industry || null, otherData.company_size || null,
         subscription_package_id, subscription_start_date, subscription_end_date, is_active
     ];
 

@@ -12,7 +12,9 @@ const {
   resetPassword,
   logout,
   getTimezones,
-  getCommonTimezones
+  getCommonTimezones,
+  getAvailablePackages,
+  selectInitialSubscription
 } = require('../controllers/authController');
 
 const {
@@ -29,6 +31,7 @@ const {
 
 const { attachTimezone } = require('../middleware/timezoneMiddleware');
 const { logActivity, logLoginActivity } = require('../middleware/loggingMiddleware');
+const { getCompanySubscriptionAndUsage } = require('../middleware/subscriptionMiddleware');
 
 const router = express.Router();
 
@@ -52,6 +55,15 @@ router.post('/login', authLimiter, validateLogin, login);
 router.post('/forgot-password', authLimiter, validateAdminEmail, forgotPassword);
 
 router.post('/reset-password', authLimiter, validatePassword, resetPassword);
+
+router.get('/packages', authenticate, attachTimezone, getAvailablePackages);
+
+router.post('/select-subscription',
+    authenticate,
+    attachTimezone,
+    getCompanySubscriptionAndUsage,
+    selectInitialSubscription
+);
 
 router.get('/profile', authenticateAny, attachTimezone, getProfile);
 

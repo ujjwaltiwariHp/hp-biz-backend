@@ -17,6 +17,8 @@ const generateInvoicePdf = (invoice) => {
     const taxAmount = parseFloat(invoice.tax_amount) || 0;
     const totalAmount = parseFloat(invoice.total_amount) || 0;
 
+    const formatDate = (date) => new Date(date).toLocaleDateString('en-GB');
+
     doc.fontSize(25).fillColor('#2c3e50').text('INVOICE', 50, 60);
 
     doc.fontSize(10).fillColor('#34495e')
@@ -32,20 +34,20 @@ const generateInvoicePdf = (invoice) => {
       .fillColor('#2c3e50').text(`  ${invoice.invoice_number}`, { align: 'left' });
 
     doc.fillColor('#34495e').text('Date:', 350, 155, { continued: true })
-      .fillColor('#2c3e50').text(`  ${new Date(invoice.created_at).toLocaleDateString()}`, { align: 'left' });
+      .fillColor('#2c3e50').text(`  ${formatDate(invoice.created_at)}`, { align: 'left' });
 
     doc.fillColor('#34495e').text('Due Date:', 350, 170, { continued: true })
-      .fillColor('#c0392b').text(`  ${new Date(invoice.due_date).toLocaleDateString()}`, { align: 'left' });
+      .fillColor('#c0392b').text(`  ${formatDate(invoice.due_date)}`, { align: 'left' });
 
     doc.fillColor('#34495e').text('Status:', 350, 185, { continued: true })
-      .fillColor('#27ae60').text(`  ${invoice.status.toUpperCase()}`, { align: 'left' });
+      .fillColor(invoice.status === 'paid' ? '#27ae60' : '#c0392b').text(`  ${invoice.status.toUpperCase()}`, { align: 'left' });
 
     doc.fontSize(10).fillColor('#34495e').text('Billed To:', 50, 140)
       .fillColor('#2c3e50').text(invoice.company_name, 50, 155, { width: 280 })
       .text(invoice.billing_address || 'Address Not Provided', 50, 170, { width: 280 })
       .text(invoice.billing_email, 50, 185, { width: 280 });
 
-    const tableTop = 250;
+    let tableTop = 250;
     const descX = 50;
     const packageX = 320;
     const amountX = 450;
@@ -56,14 +58,40 @@ const generateInvoicePdf = (invoice) => {
       .text('PACKAGE', packageX, tableTop + 5, { width: 110 })
       .text('AMOUNT', amountX, tableTop + 5, { width: 110, align: 'right' });
 
-    const rowY = tableTop + 30;
+    let rowY = tableTop + 30;
     doc.font('Helvetica').fillColor('#34495e')
-      .text(`Subscription Fee for period: ${new Date(invoice.billing_period_start).toLocaleDateString()} to ${new Date(invoice.billing_period_end).toLocaleDateString()}`,
+      .text(`Subscription Fee for period: ${formatDate(invoice.billing_period_start)} to ${formatDate(invoice.billing_period_end)}`,
         descX + 5, rowY, { width: 250 })
       .text(invoice.package_name, packageX, rowY, { width: 110 })
       .text(`${invoice.currency} ${amount.toFixed(2)}`, amountX, rowY, { width: 110, align: 'right' });
 
-    const totalY = rowY + 60;
+    rowY += 20;
+
+    let featuresList = [];
+    if (invoice.features) {
+        if (typeof invoice.features === 'string') {
+            try { featuresList = JSON.parse(invoice.features); } catch(e) {}
+        } else if (Array.isArray(invoice.features)) {
+            featuresList = invoice.features;
+        }
+    }
+
+    if (featuresList.length > 0) {
+        doc.font('Helvetica-Oblique').fillColor('#555').fontSize(8)
+           .text('Included Features:', descX + 5, rowY);
+
+        rowY += 10;
+
+        const featureNames = featuresList.map(f => f.replace(/_/g, ' ')).join(', ');
+
+        doc.font('Helvetica').fillColor('#666').fontSize(8)
+           .text(featureNames, descX + 5, rowY, { width: 250 });
+
+        rowY += 20;
+    }
+
+    rowY += 10;
+    const totalY = rowY;
     const labelX = 380;
     const valueX = 480;
 
@@ -80,11 +108,11 @@ const generateInvoicePdf = (invoice) => {
       .stroke();
 
     doc.fontSize(12).font('Helvetica-Bold').fillColor('#2c3e50')
-      .text('TOTAL DUE:', labelX, totalY + 45, { width: 80 })
+      .text('TOTAL PAID:', labelX, totalY + 45, { width: 80 })
       .text(`${invoice.currency} ${totalAmount.toFixed(2)}`, valueX, totalY + 45, { width: 80, align: 'right' });
 
     doc.fontSize(10).font('Helvetica').fillColor('#888')
-      .text('Thank you for your business. Please remit payment by the due date.', 50, 750, { width: 510, align: 'center' })
+      .text('Thank you for your business. This invoice confirms your payment and subscription activation.', 50, 750, { width: 510, align: 'center' })
       .text('Contact us at billing@supersaas.com for payment inquiries.', 50, 765, { width: 510, align: 'center' });
 
     doc.end();

@@ -8,6 +8,7 @@ const { calculateEndDate } = require('../../utils/subscriptionHelper');
 const { successResponse } = require('../../utils/successResponse');
 const { errorResponse } = require('../../utils/errorResponse');
 const { logSystemEvent } = require('../../models/loggingModel');
+const { generateInvoicePdf } = require('../../utils/pdfGenerator');
 
 
 const initiateSubscriptionRequest = async (req, res) => {
@@ -37,7 +38,7 @@ const initiateSubscriptionRequest = async (req, res) => {
     const endDate = calculateEndDate(startDate, duration_type, 1, timezone);
     const dueDate = moment().tz(timezone).add(due_date_days, 'days').endOf('day');
 
-    // 1. Create the Invoice (Status = 'pending')
+
     const newInvoice = await createInvoice({
       company_id: companyId,
       subscription_package_id,
@@ -50,14 +51,13 @@ const initiateSubscriptionRequest = async (req, res) => {
       due_date: dueDate.toISOString()
     });
 
-    // 2. Update Company Status to 'pending'
+
     const updatedCompany = await updateSubscriptionStatusManual(companyId, superAdminId, 'pending', {
         subscription_package_id,
         subscription_start_date: startDate.toISOString(),
         subscription_end_date: endDate.toISOString()
     });
 
-    // 3. Log event
     await logSystemEvent({
         company_id: companyId,
         log_level: 'INFO',
@@ -65,7 +65,6 @@ const initiateSubscriptionRequest = async (req, res) => {
         message: `Subscription request initiated for Invoice #${newInvoice.invoice_number} by SA:${superAdminId}. Status: pending.`
     });
 
-    // 4. Respond to Admin, who should then manually send the invoice email
     return successResponse(res, 'Subscription request initiated and invoice created.', {
       company: updatedCompany,
       invoice: newInvoice
@@ -96,7 +95,6 @@ const markPaymentReceived = async (req, res) => {
             return errorResponse(res, 400, `Invoice status is ${invoice.status}. Cannot mark payment received.`);
         }
 
-        // 1. Update Invoice Status and Payment Details
         await updateInvoice(invoice_id, {
             status: 'payment_received',
             payment_method,
@@ -106,14 +104,13 @@ const markPaymentReceived = async (req, res) => {
             admin_verified_by: superAdminId
         });
 
-        // 2. Update Company Subscription Status
         const updatedCompany = await updateSubscriptionStatusManual(companyId, superAdminId, 'payment_received', {});
 
         await logSystemEvent({
             company_id: companyId,
             log_level: 'INFO',
             log_category: 'INVOICE_PAYMENT',
-            message: `Payment verified and status set to 'payment_received' for Invoice #${invoice.invoice_number} by SA:${superAdminId}. Status: payment_received.`
+            message: `Payment verified and status set to 'payment_received' for Invoice #${invoice.invoice_number} by SA:${superAdminId}.`
         });
 
         return successResponse(res, 'Payment marked as received and verified. Ready for Subscription Approval.', {
@@ -157,34 +154,41 @@ const approveSubscription = async (req, res) => {
           : moment().tz(req.timezone).startOf('day');
 
         const endDate = calculateEndDate(startDate, packageData.duration_type, 1, req.timezone);
-
-        // 1. Update Company Status to 'approved' (activates service)
         const updatedCompany = await updateSubscriptionStatusManual(companyId, req.superAdmin.id, 'approve', {
             subscription_package_id: company.subscription_package_id,
             subscription_start_date: startDate.toISOString(),
             subscription_end_date: endDate.toISOString()
         });
 
-        // 2. Update Invoice to 'paid'
-        await updateInvoice(invoice_id, {
+        const updatedInvoice = await updateInvoice(invoice_id, {
             status: 'paid',
             payment_date: new Date().toISOString()
         });
 
-        // 3. Send Notifications (The email send succeeded, but the notification write failed)
-        await createSubscriptionActivationNotification(company, packageData, endDate.toISOString(), superAdminName);
+        const pdfBuffer = await generateInvoicePdf({
+            ...invoice,
+            ...updatedInvoice,
+            package_name: packageData.name
+        });
 
-        // 4. FIXES: Robust Logging and Moment formatting fix
+
+        await createSubscriptionActivationNotification(
+            company,
+            packageData,
+            endDate.toISOString(),
+            superAdminName,
+            updatedInvoice,
+            pdfBuffer
+        );
+
         try {
             await logSystemEvent({
                 company_id: companyId,
                 log_level: 'SUCCESS',
                 log_category: 'SUBSCRIPTION',
-                // FIX: Convert native Date object (endDate) back to Moment for formatting
                 message: `Subscription successfully APPROVED and activated by SA:${req.superAdmin.id}. End date: ${moment(endDate).format('YYYY-MM-DD')}.`
             });
         } catch (logError) {
-            // Log the logging failure but continue execution
             console.error('Non-critical: Failed to log system event after successful activation:', logError);
         }
 
@@ -213,13 +217,10 @@ const rejectSubscription = async (req, res) => {
         if (!company || !invoice) {
             return errorResponse(res, 404, 'Company or Invoice not found.');
         }
-
-        // Only allow rejection if status is pending, sent, or payment_received
         if (company.subscription_status === 'approved' || company.subscription_status === 'rejected') {
             return errorResponse(res, 400, `Cannot reject subscription in '${company.subscription_status}' status.`);
         }
 
-        // 1. Update Invoice Status to 'rejected'
         await updateInvoice(invoice_id, {
             status: 'rejected',
             rejection_reason,
@@ -228,7 +229,6 @@ const rejectSubscription = async (req, res) => {
             admin_verified_by: req.superAdmin.id
         });
 
-        // 2. Update Company Status to 'rejected'
         const updatedCompany = await updateSubscriptionStatusManual(companyId, req.superAdmin.id, 'reject', {});
 
         await logSystemEvent({
