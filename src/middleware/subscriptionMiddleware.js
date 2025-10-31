@@ -3,6 +3,7 @@ const { errorResponse } = require('../utils/errorResponse');
 const { getCurrentStaffCount } = require('../models/staffModel');
 const { getLeadsCreatedThisMonth } = require('../models/leadsModel');
 
+const PASSTHROUGH_STATUSES = ['pending', 'payment_received', 'trial'];
 
 const getCompanySubscriptionAndUsage = async (req, res, next) => {
     if (!req.company || !req.company.id) {
@@ -14,7 +15,7 @@ const getCompanySubscriptionAndUsage = async (req, res, next) => {
         const packageData = req.company;
 
         if (!packageData.subscription_package_id) {
-            return errorResponse(res, 403, 'No active subscription found. Please contact support.');
+        //
         }
 
         const [currentStaffCount, leadsThisMonth] = await Promise.all([
@@ -30,7 +31,8 @@ const getCompanySubscriptionAndUsage = async (req, res, next) => {
             max_staff_count: parseInt(packageData.max_staff_count, 10) || 0,
             max_leads_per_month: parseInt(packageData.max_leads_per_month, 10) || 0,
             is_trial: packageData.is_trial,
-            expires_at: packageData.subscription_end_date
+            expires_at: packageData.subscription_end_date,
+            subscription_status: packageData.subscription_status
         };
 
         req.company.usage = {
@@ -47,13 +49,19 @@ const getCompanySubscriptionAndUsage = async (req, res, next) => {
 
 const checkSubscriptionActive = (req, res, next) => {
     const sub = req.company.subscription;
-    // Note: req.company.is_active is used directly from the initial auth fetch now.
     const companyActive = req.company.is_active;
     const isExpired = sub.expires_at && moment(sub.expires_at).isSameOrBefore(moment.utc());
+    const currentStatus = sub.subscription_status;
+
+    if (PASSTHROUGH_STATUSES.includes(currentStatus)) {
+        return next();
+    }
 
     if (!companyActive || isExpired) {
-        return errorResponse(res, 403, 'Subscription expired or inactive. Please renew your plan.');
+        return errorResponse(res, 403, 'Subscription inactive or expired. Please renew your plan.');
     }
+
+    // Fully approved and active
     next();
 };
 

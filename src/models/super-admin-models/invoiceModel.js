@@ -33,7 +33,11 @@ const createInvoice = async (invoiceData) => {
       currency = 'USD',
       billing_period_start,
       billing_period_end,
-      due_date
+      due_date,
+
+      payment_method = null,
+      payment_reference = null,
+      payment_notes = null
     } = invoiceData;
 
     const invoice_number = await generateUniqueInvoiceNumber();
@@ -41,9 +45,10 @@ const createInvoice = async (invoiceData) => {
     const query = `
       INSERT INTO invoices (
         company_id, subscription_package_id, invoice_number, amount, tax_amount,
-        total_amount, currency, billing_period_start, billing_period_end, due_date, status
+        total_amount, currency, billing_period_start, billing_period_end, due_date, status,
+        payment_method, payment_reference, payment_notes
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', $11, $12, $13)
       RETURNING *
     `;
 
@@ -57,7 +62,10 @@ const createInvoice = async (invoiceData) => {
       currency,
       billing_period_start,
       billing_period_end,
-      due_date
+      due_date,
+      payment_method,
+      payment_reference,
+      payment_notes
     ];
 
     const result = await pool.query(query, params);
@@ -144,6 +152,7 @@ const updateInvoice = async (id, updateData) => {
     const params = [id];
     let paramIndex = 2;
 
+    // Dynamically build the update query for all fields, including new manual columns
     for (const key in updateData) {
       fields.push(`${key} = $${paramIndex}`);
       params.push(updateData[key]);

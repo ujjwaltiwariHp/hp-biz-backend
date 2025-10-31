@@ -8,11 +8,13 @@ const {
   linkPaymentToInvoice,
   getPaymentById
 } = require('../../models/super-admin-models/invoiceModel');
+const { updateSubscriptionStatusManual } = require('../../models/super-admin-models/companyModel');
+const { logSystemEvent } = require('../../models/loggingModel');
 const { successResponse } = require('../../utils/successResponse');
 const { errorResponse } = require('../../utils/errorResponse');
 const { calculateTaxAndTotal } = require('../../utils/calculationHelper');
 const { generateInvoicePdf } = require('../../utils/pdfGenerator');
-const { sendInvoiceEmail } = require('../../services/notificationService');
+const { sendInvoiceEmail } = require('../../services/emailService');
 
 const generateInvoice = async (req, res) => {
   try {
@@ -227,23 +229,68 @@ const sendInvoiceEmailController = async (req, res) => {
       return errorResponse(res, 404, "Invoice not found");
     }
 
-    // Generate PDF
     const pdfBuffer = await generateInvoicePdf(invoice);
 
     await sendInvoiceEmail(invoice, pdfBuffer);
 
-    await updateInvoice(parseInt(id), { status: 'sent' });
+    const updatedInvoice = await updateInvoice(parseInt(id), { status: 'sent' });
 
     return successResponse(res, "Invoice sent successfully via email", {
-      invoice_id: invoice.id,
-      invoice_number: invoice.invoice_number,
-      email: invoice.billing_email
+      invoice_id: updatedInvoice.id,
+      invoice_number: updatedInvoice.invoice_number,
+      email: updatedInvoice.billing_email
     });
   } catch (error) {
     console.error("Error sending invoice email:", error);
     return errorResponse(res, 500, "Failed to send invoice email");
   }
 };
+
+const markPaymentReceived = async (req, res) => {
+    const invoiceId = parseInt(req.params.id);
+    const { payment_method, payment_reference, payment_notes } = req.body;
+    const superAdminId = req.superAdmin.id;
+
+    try {
+        const invoice = await getInvoiceById(invoiceId);
+
+        if (!invoice) {
+            return errorResponse(res, 404, 'Invoice not found');
+        }
+
+        if (invoice.status === 'paid' || invoice.status === 'rejected') {
+            return errorResponse(res, 400, `Cannot mark payment as received. Invoice status is ${invoice.status}.`);
+        }
+
+        const updatedInvoice = await updateInvoice(invoiceId, {
+            status: 'payment_received',
+            payment_method,
+            payment_reference,
+            payment_notes,
+            admin_verified_at: new Date().toISOString(),
+            admin_verified_by: superAdminId
+        });
+
+        const updatedCompany = await updateSubscriptionStatusManual(invoice.company_id, superAdminId, 'payment_received', {});
+
+        await logSystemEvent({
+            company_id: invoice.company_id,
+            log_level: 'INFO',
+            log_category: 'INVOICE_PAYMENT',
+            message: `Payment manually verified for Invoice #${invoice.invoice_number} by SA:${superAdminId}. Status: payment_received.`
+        });
+
+        return successResponse(res, 'Payment marked as received and verified. Ready for Subscription Approval.', {
+            invoice: updatedInvoice,
+            company_status: updatedCompany.subscription_status
+        }, 200, req);
+
+    } catch (error) {
+        console.error('Mark Payment Received Error:', error);
+        return errorResponse(res, 500, 'Failed to mark payment as received.');
+    }
+};
+
 
 module.exports = {
   generateInvoice,
@@ -252,5 +299,6 @@ module.exports = {
   updateInvoiceDetails,
   removeInvoice,
   downloadInvoice,
-  sendInvoiceEmailController
+  sendInvoiceEmailController,
+  markPaymentReceived
 };

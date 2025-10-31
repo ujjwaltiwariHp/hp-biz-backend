@@ -182,8 +182,17 @@ const sendInvoiceEmail = async (invoiceData, pdfBuffer) => {
       company_name,
       invoice_number,
       total_amount,
-      currency
+      currency,
+      status
     } = invoiceData;
+
+    const subject = status === 'overdue'
+      ? `OVERDUE: Invoice ${invoice_number} from HPBIZ`
+      : `Invoice ${invoice_number} from HPBIZ`;
+
+    const bodyMessage = status === 'overdue'
+      ? `Your invoice is currently **overdue**. Please see the attached document for the payment amount of **${currency} ${parseFloat(total_amount).toFixed(2)}** and details on how to remit payment.`
+      : `Please find your invoice attached for your subscription. The amount due is **${currency} ${parseFloat(total_amount).toFixed(2)}**.`;
 
     const sendSmtpEmail = new brevo.SendSmtpEmail();
 
@@ -192,13 +201,13 @@ const sendInvoiceEmail = async (invoiceData, pdfBuffer) => {
       email: process.env.EMAIL_FROM || "ujjwaltiwari.hp@gmail.com"
     };
     sendSmtpEmail.to = [{ email: billing_email }];
-    sendSmtpEmail.subject = `Invoice ${invoice_number} from HPBIZ`;
+    sendSmtpEmail.subject = subject;
     sendSmtpEmail.htmlContent = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <h1>Invoice for ${company_name}</h1>
         <p><strong>Invoice #:</strong> ${invoice_number}</p>
-        <p><strong>Amount:</strong> ${currency} ${parseFloat(total_amount).toFixed(2)}</p>
-        <p>Please find your invoice attached.</p>
+        <p>${bodyMessage}</p>
+        <p style="margin-top: 30px;">Thank you for your timely payment.</p>
       </div>
     `;
     sendSmtpEmail.attachment = [
@@ -214,6 +223,55 @@ const sendInvoiceEmail = async (invoiceData, pdfBuffer) => {
   } catch (error) {
     console.error('Invoice email error:', error);
     throw error;
+  }
+};
+
+/**
+ * Sends a subscription activation confirmation email after manual admin approval.
+ */
+const sendSubscriptionActivationEmail = async (companyData, packageData, endDate) => {
+  try {
+    const { admin_email, company_name, admin_name } = companyData;
+    const packageName = packageData.name;
+    const loginUrl = process.env.APP_LOGIN_URL || 'https://app-login-url.com/login';
+    const formattedEndDate = new Date(endDate).toLocaleDateString();
+
+    const sendSmtpEmail = new brevo.SendSmtpEmail();
+
+    sendSmtpEmail.sender = {
+      name: "HPBIZ",
+      email: process.env.EMAIL_FROM || "ujjwaltiwari.hp@gmail.com"
+    };
+    sendSmtpEmail.to = [{ email: admin_email }];
+    sendSmtpEmail.subject = `Your HPBIZ Subscription is Active!`;
+    sendSmtpEmail.htmlContent = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #f9f9f9;">
+        <div style="background: white; padding: 30px; border-radius: 10px;">
+          <h1 style="color: #27ae60; text-align: center;">Subscription Activated</h1>
+          <h2 style="color: #333;">Hello ${admin_name},</h2>
+          <p style="color: #666;">Your subscription for **${company_name}** has been successfully approved and activated by our team!</p>
+
+          <div style="background: #eaf7ed; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 5px solid #27ae60;">
+            <p style="margin: 0;"><strong>Plan:</strong> ${packageName}</p>
+            <p style="margin: 0;"><strong>Active Until:</strong> ${formattedEndDate}</p>
+          </div>
+
+          <p style="color: #666;">You now have full access to all features under your selected plan. You can log in and start managing your leads and staff immediately.</p>
+
+          <p style="text-align: center; margin-bottom: 20px;">
+            <a href="${loginUrl}" style="background: #000; color: #ffcc00; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
+              Go to App Dashboard
+            </a>
+          </p>
+        </div>
+      </div>
+    `;
+
+    await apiInstance.sendTransacEmail(sendSmtpEmail);
+    console.log('Subscription activation email sent successfully');
+  } catch (error) {
+    console.error('Brevo email error (Activation):', error);
+    throw new Error('Failed to send activation email');
   }
 };
 
@@ -268,5 +326,6 @@ module.exports = {
   sendNotificationEmail,
   sendAdminNotificationEmail,
   sendInvoiceEmail,
+  sendSubscriptionActivationEmail,
   sendAdminProvisioningEmail
 };

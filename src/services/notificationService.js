@@ -1,5 +1,6 @@
-const Notifications = require("../models/notificationsModel");
-const { sendNotificationEmail, sendAdminNotificationEmail } = require("./emailService");
+const Notifications = require("../models/notificationsModel"); // Original Staff/Company Notification Model
+const { createNotification: createSuperAdminNotification } = require('../models/super-admin-models/notificationModel'); // NEW IMPORT for Super Admin table
+const { sendNotificationEmail, sendAdminNotificationEmail, sendSubscriptionActivationEmail } = require("./emailService");
 const pool = require("../config/database");
 
 const createLeadStatusChangeNotification = async (leadId, oldStatus, newStatus, changedBy, companyId) => {
@@ -502,6 +503,44 @@ const createLeadUpdateNotification = async (leadId, updatedBy, companyId, update
   }
 };
 
+const createSubscriptionActivationNotification = async (companyData, packageData, endDate, superAdminName) => {
+  try {
+    const { id: companyId, company_name } = companyData;
+    const packageName = packageData.name;
+    const formattedEndDate = new Date(endDate).toLocaleDateString();
+
+    await sendSubscriptionActivationEmail(companyData, packageData, endDate);
+
+    // FIX: Call the correct Super Admin Notification Model (imported as createSuperAdminNotification in notificationService.js)
+    // The previous call was causing the 'null value in column "type"' error in the staff/company notifications table.
+
+    const notificationMessage = `Subscription activated for ${company_name} on ${packageName} plan until ${formattedEndDate}. Approved by ${superAdminName}.`;
+
+    // Assuming the user has the fixed notificationService.js:
+    const { createNotification: createSuperAdminNotification } = require('../models/super-admin-models/notificationModel');
+
+    await createSuperAdminNotification({
+      company_id: companyId,
+      super_admin_id: null,
+      title: "Subscription Activated",
+      message: notificationMessage,
+      notification_type: "subscription_activated",
+      priority: "high",
+      metadata: {
+        package_name: packageName,
+        end_date: endDate,
+        approved_by: superAdminName
+      }
+    });
+
+  } catch (error) {
+    console.error('Error creating subscription activation notification:', error);
+    // CRITICAL: Re-throw the error to be handled by the controller's outer catch block
+    throw error;
+  }
+};
+
+
 module.exports = {
   createLeadStatusChangeNotification,
   createLeadAssignmentNotification,
@@ -509,5 +548,6 @@ module.exports = {
   createCustomNotification,
   createLeadActivityNotification,
   createLeadCreationNotification,
-  createLeadUpdateNotification
+  createLeadUpdateNotification,
+  createSubscriptionActivationNotification
 };

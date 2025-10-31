@@ -14,6 +14,12 @@ const {
 } = require('../../controllers/super-admin-controllers/companyController');
 
 const {
+  initiateSubscriptionRequest,
+  approveSubscription,
+  rejectSubscription
+} = require('../../controllers/super-admin-controllers/subscriptionManagementController');
+
+const {
   validateCompanyId,
   validateCompanyQuery,
   validateSubscriptionUpdate,
@@ -36,14 +42,32 @@ router.post('/create',
 );
 
 
-
 router.get('/', requireSuperAdminPermission('companies', 'view'), validateCompanyQuery, getCompanies);
 
 router.get('/usage-report', requireSuperAdminPermission('reports', 'view'), validateUsageReport, getUsageReport);
-router.get('/:id', requireSuperAdminPermission('companies', 'view'), validateCompanyId, getCompany); // Ensure validation runs before controller
+router.get('/:id', requireSuperAdminPermission('companies', 'view'), validateCompanyId, getCompany);
 router.put('/:id/activate', requireSuperAdminPermission('companies', 'update'), validateCompanyId, activateCompanyAccount);
 router.put('/:id/deactivate', requireSuperAdminPermission('companies', 'update'), validateCompanyId, deactivateCompanyAccount);
+
+router.post('/:id/subscription/request',
+    requireSuperAdminPermission('companies', 'create'),
+    validateSubscriptionUpdate,
+    initiateSubscriptionRequest
+);
+
+router.post('/:id/subscription/approve',
+    requireSuperAdminPermission('companies', 'update'),
+    validateCompanyId,
+    approveSubscription
+);
+
+router.post('/:id/subscription/reject',
+    requireSuperAdminPermission('companies', 'update'),
+    validateCompanyId,
+    rejectSubscription
+);
+
 router.put('/:id/subscription', requireSuperAdminPermission('companies', 'update'), validateSubscriptionUpdate, updateSubscription);
-router.delete('/:id', requireSuperAdminPermission('companies', 'delete'), validateCompanyId, removeCompany); // Ensure validation runs before controller
+router.delete('/:id', requireSuperAdminPermission('companies', 'delete'), validateCompanyId, removeCompany);
 
 module.exports = router;

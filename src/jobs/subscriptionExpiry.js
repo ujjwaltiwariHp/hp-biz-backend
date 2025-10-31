@@ -11,6 +11,7 @@ const getExpiredActiveCompanies = async () => {
             WHERE is_active = TRUE
               AND subscription_end_date IS NOT NULL
               AND subscription_end_date < CURRENT_TIMESTAMP
+              AND subscription_status = 'approved'
         `;
         const result = await pool.query(query);
         return result.rows;
@@ -32,7 +33,6 @@ const getExpiredActiveCompanies = async () => {
 };
 
 const startSubscriptionCron = () => {
-    // Runs daily at 09:00 (9 AM) server time (using the cron syntax '0 9 * * *')
     cron.schedule('0 9 * * *', async () => {
         console.log('Running Subscription Expiry Cron Job...');
         let deactivatedCount = 0;
@@ -59,9 +59,15 @@ const startSubscriptionCron = () => {
             for (const company of expiredCompanies) {
                 try {
                     await deactivateCompany(company.id);
+
+                    await pool.query(
+                        `UPDATE companies SET subscription_status = 'expired', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+                        [company.id]
+                    );
+
                     deactivatedCount++;
 
-                    const logMessage = `Subscription expired for ${company.company_name} (ID: ${company.id}). Account deactivated.`;
+                    const logMessage = `Subscription expired for ${company.company_name} (ID: ${company.id}). Account deactivated and status set to 'expired'.`;
                     console.log(logMessage);
 
                     try {
@@ -109,7 +115,7 @@ const startSubscriptionCron = () => {
             }
         }
     }, {
-        timezone: "UTC" // Run at 9 AM UTC to ensure consistent daily timing regardless of server location
+        timezone: "UTC"
     });
 
     console.log('Subscription Expiry Cron Job scheduled: Daily at 09:00 UTC.');

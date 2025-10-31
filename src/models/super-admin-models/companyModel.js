@@ -12,7 +12,7 @@ const getAllCompanies = async (limit = 10, offset = 0, search = '', status = '')
       SELECT
         c.id, c.unique_company_id, c.company_name, c.admin_email, c.admin_name,
         c.phone, c.address, c.website, c.industry, c.company_size,
-        c.subscription_start_date, c.subscription_end_date, c.is_active,
+        c.subscription_start_date, c.subscription_end_date, c.is_active, c.subscription_status,
         c.email_verified, c.created_at, c.updated_at,
         sp.name as package_name, sp.price as package_price, sp.duration_type,
         COUNT(*) OVER() as total_count
@@ -130,6 +130,94 @@ const updateCompanySubscription = async (id, subscriptionData) => {
     return result.rows[0];
   } catch (error) {
     throw error;
+  }
+};
+
+const updateSubscriptionStatusManual = async (companyId, adminId, action, subscriptionData) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const {
+      subscription_package_id,
+      subscription_start_date,
+      subscription_end_date
+    } = subscriptionData;
+
+    let newStatus = '';
+    let isActive = false;
+    let queryFields = [];
+    const queryValues = [companyId];
+    let paramCount = 2;
+
+    if (action === 'approve') {
+      if (!subscription_package_id || !subscription_start_date || !subscription_end_date) {
+        throw new Error('Missing package ID, start date, or end date for approval');
+      }
+      newStatus = 'approved';
+      isActive = true;
+
+      queryFields.push(`subscription_status = $${paramCount++}`);
+      queryValues.push(newStatus);
+
+      queryFields.push(`is_active = $${paramCount++}`);
+      queryValues.push(isActive);
+
+      queryFields.push(`subscription_package_id = $${paramCount++}`);
+      queryValues.push(parseInt(subscription_package_id));
+
+      queryFields.push(`subscription_start_date = $${paramCount++}`);
+      queryValues.push(subscription_start_date);
+
+      queryFields.push(`subscription_end_date = $${paramCount++}`);
+      queryValues.push(subscription_end_date);
+    } else if (action === 'reject') {
+      newStatus = 'rejected';
+      isActive = false;
+
+      queryFields.push(`subscription_status = $${paramCount++}`);
+      queryValues.push(newStatus);
+
+      queryFields.push(`is_active = $${paramCount++}`);
+      queryValues.push(isActive);
+
+      queryFields.push(`subscription_start_date = NULL`);
+      queryFields.push(`subscription_end_date = NULL`);
+
+    } else if (action === 'payment_received') {
+        newStatus = 'payment_received';
+        queryFields.push(`subscription_status = $${paramCount++}`);
+        queryValues.push(newStatus);
+    } else if (action === 'pending') {
+        newStatus = 'pending';
+        queryFields.push(`subscription_status = $${paramCount++}`);
+        queryValues.push(newStatus);
+    } else {
+      throw new Error(`Invalid action: ${action}`);
+    }
+
+    const updateCompanyQuery = `
+      UPDATE companies
+      SET
+        ${queryFields.join(', ')},
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING *
+    `;
+    const updatedCompany = await client.query(updateCompanyQuery, queryValues);
+
+    if (updatedCompany.rows.length === 0) {
+      throw new Error('Company not found');
+    }
+
+    await client.query('COMMIT');
+
+    return updatedCompany.rows[0];
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
 };
 
@@ -274,6 +362,7 @@ module.exports = {
   activateCompany,
   deactivateCompany,
   updateCompanySubscription,
+  updateSubscriptionStatusManual,
   deleteCompany,
   getCompanyStats,
   getDashboardStats,

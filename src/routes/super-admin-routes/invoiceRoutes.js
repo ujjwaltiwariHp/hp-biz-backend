@@ -8,7 +8,8 @@ const {
   updateInvoiceDetails,
   removeInvoice,
   downloadInvoice,
-  sendInvoiceEmailController
+  sendInvoiceEmailController,
+  markPaymentReceived
 } = require('../../controllers/super-admin-controllers/invoiceController');
 
 const {
@@ -19,7 +20,7 @@ const {
 } = require('../../middleware/super-admin-middleware/invoiceValidation');
 
 const { authenticateSuperAdmin } = require('../../middleware/super-admin-middleware/authMiddleware');
-const { requireSuperAdminPermission } = require('../../middleware/super-admin-middleware/superAdminPermissionMiddleware'); // ADDED IMPORT
+const { requireSuperAdminPermission } = require('../../middleware/super-admin-middleware/superAdminPermissionMiddleware');
 
 router.use(authenticateSuperAdmin);
 
@@ -30,6 +31,10 @@ router.post('/generate', requireSuperAdminPermission('invoices', 'create'), vali
 router.get('/get', requireSuperAdminPermission('invoices', 'view'), validateInvoiceQuery, getAllInvoices);
 router.get('/get/:id', requireSuperAdminPermission('invoices', 'view'), validateInvoiceId, getInvoiceDetails);
 router.get('/:id/download', requireSuperAdminPermission('invoices', 'view'), validateInvoiceId, downloadInvoice);
+
+
+router.post('/:id/mark-received', requireSuperAdminPermission('invoices', 'update'), validateInvoiceId, markPaymentReceived);
+
 
 // CRUD routes (Super-Admin only)
 router.post('/:id/send', requireSuperAdminPermission('invoices', 'update'), validateInvoiceId, sendInvoiceEmailController);
