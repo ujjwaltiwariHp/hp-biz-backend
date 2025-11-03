@@ -323,8 +323,6 @@ CREATE TABLE invoices (
     due_date DATE,
     status VARCHAR(20) DEFAULT 'pending',
     payment_date TIMESTAMP,
-    payment_method VARCHAR(50),
-    payment_reference VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

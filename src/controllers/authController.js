@@ -238,6 +238,24 @@ const selectInitialSubscription = async (req, res) => {
 
       await updateInvoice(newInvoice.id, { status: 'sent' });
 
+      try {
+          await createNotification({
+              company_id: companyId,
+              super_admin_id: null,
+              title: 'NEW PAID SUBSCRIPTION REQUEST',
+              message: `Company ${company.company_name} selected ${packageData.name} (${invoiceData.currency} ${invoiceData.total_amount}). Invoice #${newInvoice.invoice_number} sent. Awaiting payment.`,
+              notification_type: 'payment_pending',
+              priority: 'high',
+              metadata: {
+                  invoice_id: newInvoice.id,
+                  package_id: package_id,
+                  company_name: company.company_name
+              }
+          });
+      } catch (e) {
+          console.error('Non-critical: Failed to send Super Admin notification:', e);
+      }
+
       await logSystemEvent({
           company_id: companyId,
           log_level: 'INFO',
