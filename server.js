@@ -25,7 +25,6 @@ const { startSubscriptionCron } = require('./src/jobs/subscriptionExpiry');
 const { globalLogActivity, logError } = require('./src/middleware/loggingMiddleware');
 const { startNotificationCron } = require('./src/utils/notificationCron');
 const { attachTimezone, attachTimezoneForSuperAdmin } = require('./src/middleware/timezoneMiddleware');
-
 const { startPaymentReminderCron } = require('./src/jobs/paymentReminders');
 
 const app = express();
@@ -75,12 +74,39 @@ app.use(express.urlencoded({ extended: true }));
 
 swaggerDocs(app, PORT);
 
+app.get('/', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'HP Biz Backend API is running',
+    version: '1.0.0',
+    environment: process.env.NODE_ENV || 'development',
+    timestamp: new Date().toISOString()
+  });
+});
+
 app.get('/health', (req, res) => {
   res.status(200).json({
     message: 'Server is running!',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development'
   });
+});
+
+app.get('/api/db-status', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT NOW()');
+    res.status(200).json({
+      success: true,
+      message: 'Database connected',
+      timestamp: result.rows[0].now
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: 'Database connection failed',
+      error: err.message
+    });
+  }
 });
 
 app.use(globalLogActivity);
@@ -122,18 +148,29 @@ app.use((err, req, res, next) => {
 });
 
 const startServer = async () => {
+  let dbConnected = false;
+
   try {
     const result = await pool.query('SELECT NOW()');
     console.log('Database connected at:', result.rows[0].now);
+    dbConnected = true;
+  } catch (err) {
+    console.error('Database connection warning:', err.message);
+  }
+
+  try {
     startOtpCleanupJob();
     startNotificationCron();
     startSubscriptionCron();
     startPaymentReminderCron();
+
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
+      console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`Database: ${dbConnected ? 'Connected' : 'Disconnected'}`);
     });
   } catch (err) {
-    console.error('Database connection failed:', err.message);
+    console.error('Failed to start server:', err.message);
     process.exit(1);
   }
 };
