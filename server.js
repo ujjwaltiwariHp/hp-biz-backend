@@ -19,7 +19,7 @@ const superAdminPaymentRoutes = require('./src/routes/super-admin-routes/payment
 const superAdminInvoiceRoutes = require('./src/routes/super-admin-routes/invoiceRoutes');
 const superAdminnotificationRoutes = require('./src/routes/super-admin-routes/notificationRoutes');
 const superAdminLoggingRoutes = require('./src/routes/super-admin-routes/loggingRoutes');
-const subscriptionManagementRoutes = require('./scr/routes/super-admin-routes/subscriptionManagementRoutes');
+const subscriptionManagementRoutes = require('./src/routes/super-admin-routes/subscriptionManagementRoutes');
 
 const swaggerDocs = require('./src/config/swagger');
 const { startOtpCleanupJob } = require('./src/jobs/otpCleanup');
