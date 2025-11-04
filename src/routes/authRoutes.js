@@ -91,8 +91,8 @@ router.put('/change-password', authenticateAny, attachTimezone, (req, res, next)
 
 router.post('/logout', authenticateAny, attachTimezone, logActivity, logout);
 
-router.get('/timezones', authenticateAny, getTimezones);
+router.get('/timezones', getTimezones);
 
-router.get('/timezones/common', authenticateAny, getCommonTimezones);
+router.get('/timezones/common', getCommonTimezones);
 
 module.exports = router;
