@@ -143,7 +143,13 @@ const approveSubscription = async (req, res) => {
             return errorResponse(res, 400, 'Subscription is not in a payment_received status. Verification required.');
         }
 
-        const packageData = await getPackageById(company.subscription_package_id);
+        const packageId = invoice.subscription_package_id || company.subscription_package_id;
+
+        if (!packageId) {
+            return errorResponse(res, 400, 'Subscription package ID not found in invoice or company record.');
+        }
+
+        const packageData = await getPackageById(packageId);
 
         if (!packageData) {
             return errorResponse(res, 400, 'Invalid subscription package assigned.');
@@ -154,8 +160,9 @@ const approveSubscription = async (req, res) => {
           : moment().tz(req.timezone).startOf('day');
 
         const endDate = calculateEndDate(startDate, packageData.duration_type, 1, req.timezone);
+
         const updatedCompany = await updateSubscriptionStatusManual(companyId, req.superAdmin.id, 'approve', {
-            subscription_package_id: company.subscription_package_id,
+            subscription_package_id: packageId,
             subscription_start_date: startDate.toISOString(),
             subscription_end_date: endDate.toISOString()
         });
@@ -170,7 +177,6 @@ const approveSubscription = async (req, res) => {
             ...updatedInvoice,
             package_name: packageData.name
         });
-
 
         await createSubscriptionActivationNotification(
             company,
@@ -203,7 +209,6 @@ const approveSubscription = async (req, res) => {
         return errorResponse(res, 500, 'Failed to approve subscription and activate company.');
     }
 };
-
 const rejectSubscription = async (req, res) => {
     const companyId = req.params.id;
     const { invoice_id, rejection_reason, rejection_note } = req.body;
