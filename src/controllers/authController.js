@@ -454,7 +454,8 @@ const updateProfile = async (req, res) => {
     }
 
     if (website !== undefined) {
-      if (website && !/^https?:\/\/.+\..+/.test(website)) {
+      // if (website && !/^https?:\/\/.+\..+/.test(website)) {
+      {
         return errorResponse(res, 400, "Please provide a valid website URL");
       }
       profileData.website = website;
