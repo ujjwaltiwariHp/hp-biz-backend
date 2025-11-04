@@ -8,13 +8,14 @@ const {
   linkPaymentToInvoice,
   getPaymentById
 } = require('../../models/super-admin-models/invoiceModel');
-const { updateSubscriptionStatusManual } = require('../../models/super-admin-models/companyModel');
+const { updateSubscriptionStatusManual, getCompanyById } = require('../../models/super-admin-models/companyModel');
 const { logSystemEvent } = require('../../models/loggingModel');
 const { successResponse } = require('../../utils/successResponse');
 const { errorResponse } = require('../../utils/errorResponse');
 const { calculateTaxAndTotal } = require('../../utils/calculationHelper');
 const { generateInvoicePdf } = require('../../utils/pdfGenerator');
 const { sendInvoiceEmail } = require('../../services/emailService');
+const { createNotification } = require('../../models/super-admin-models/notificationModel');
 
 const generateInvoice = async (req, res) => {
   try {
@@ -148,6 +149,21 @@ const updateInvoiceDetails = async (req, res) => {
     const { id } = req.params;
     const updateBody = req.body;
 
+    if (updateBody.status === 'payment_received' || updateBody.status === 'paid') {
+      const existingInvoice = await getInvoiceById(parseInt(id));
+      if (!existingInvoice) {
+        return errorResponse(res, 404, "Invoice not found");
+      }
+
+      if (existingInvoice.status !== 'payment_received' && existingInvoice.status !== 'paid' && existingInvoice.status !== 'approved') {
+          req.params.id = id;
+          req.body.invoice_id = id;
+          req.body.payment_method = req.body.payment_method || 'manual_override';
+          req.body.payment_reference = req.body.payment_reference || `INV-${existingInvoice.invoice_number}-PAY-MANUAL`;
+          return markPaymentReceived(req, res);
+      }
+    }
+
     const existingInvoice = await getInvoiceById(parseInt(id));
     if (!existingInvoice) {
       return errorResponse(res, 404, "Invoice not found");
@@ -165,10 +181,22 @@ const updateInvoiceDetails = async (req, res) => {
       return errorResponse(res, 500, "Failed to update invoice");
     }
 
+    if (updateBody.status && updateBody.status !== existingInvoice.status) {
+        await logSystemEvent({
+            company_id: updatedInvoice.company_id,
+            log_level: 'INFO',
+            log_category: 'INVOICE',
+            message: `Invoice #${updatedInvoice.invoice_number} status manually updated to ${updatedInvoice.status}.`
+        });
+    }
+
     return successResponse(res, "Invoice updated successfully", {
       invoice: updatedInvoice
     });
   } catch (error) {
+    if (error.message.includes('Cannot mark payment as received')) {
+        return errorResponse(res, 400, "Payment is already marked as verified or processed.");
+    }
     if (error.code === '23503') {
       return errorResponse(res, 400, "Invalid foreign key provided");
     }
@@ -247,7 +275,7 @@ const sendInvoiceEmailController = async (req, res) => {
 };
 
 const markPaymentReceived = async (req, res) => {
-    const invoiceId = parseInt(req.params.id);
+    const invoiceId = parseInt(req.params.id || req.body.invoice_id);
     const { payment_method, payment_reference, payment_notes } = req.body;
     const superAdminId = req.superAdmin.id;
 
@@ -258,7 +286,7 @@ const markPaymentReceived = async (req, res) => {
             return errorResponse(res, 404, 'Invoice not found');
         }
 
-        if (invoice.status === 'paid' || invoice.status === 'rejected') {
+        if (invoice.status === 'paid' || invoice.status === 'rejected' || invoice.status === 'payment_received' || invoice.status === 'approved') {
             return errorResponse(res, 400, `Cannot mark payment as received. Invoice status is ${invoice.status}.`);
         }
 
@@ -271,14 +299,34 @@ const markPaymentReceived = async (req, res) => {
             admin_verified_by: superAdminId
         });
 
-        const updatedCompany = await updateSubscriptionStatusManual(invoice.company_id, superAdminId, 'payment_received', {});
+        const updatedCompany = await updateSubscriptionStatusManual(updatedInvoice.company_id, superAdminId, 'payment_received', {});
 
         await logSystemEvent({
-            company_id: invoice.company_id,
+            company_id: updatedInvoice.company_id,
             log_level: 'INFO',
             log_category: 'INVOICE_PAYMENT',
-            message: `Payment manually verified for Invoice #${invoice.invoice_number} by SA:${superAdminId}. Status: payment_received.`
+            message: `Payment manually verified for Invoice #${updatedInvoice.invoice_number} by SA:${superAdminId}. Status: payment_received.`
         });
+
+        try {
+            const company = await getCompanyById(updatedInvoice.company_id);
+            const companyName = company?.company_name || 'Unknown Company';
+
+            await createNotification({
+                company_id: updatedInvoice.company_id,
+                super_admin_id: superAdminId,
+                title: 'PAYMENT VERIFIED - READY FOR APPROVAL',
+                message: `Payment for Invoice #${updatedInvoice.invoice_number} from ${companyName} has been verified as received. Subscription is ready for activation.`,
+                notification_type: 'payment_received',
+                priority: 'urgent',
+                metadata: {
+                    invoice_id: updatedInvoice.id,
+                    company_id: updatedInvoice.company_id,
+                    company_name: companyName
+                }
+            });
+        } catch (notificationError) {
+        }
 
         return successResponse(res, 'Payment marked as received and verified. Ready for Subscription Approval.', {
             invoice: updatedInvoice,
@@ -286,7 +334,6 @@ const markPaymentReceived = async (req, res) => {
         }, 200, req);
 
     } catch (error) {
-        console.error('Mark Payment Received Error:', error);
         return errorResponse(res, 500, 'Failed to mark payment as received.');
     }
 };
