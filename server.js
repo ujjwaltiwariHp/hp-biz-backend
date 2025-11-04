@@ -19,6 +19,8 @@ const superAdminPaymentRoutes = require('./src/routes/super-admin-routes/payment
 const superAdminInvoiceRoutes = require('./src/routes/super-admin-routes/invoiceRoutes');
 const superAdminnotificationRoutes = require('./src/routes/super-admin-routes/notificationRoutes');
 const superAdminLoggingRoutes = require('./src/routes/super-admin-routes/loggingRoutes');
+const subscriptionManagementRoutes = require('./scr/routes/super-admin-routes/subscriptionManagementRoutes');
+
 const swaggerDocs = require('./src/config/swagger');
 const { startOtpCleanupJob } = require('./src/jobs/otpCleanup');
 const { startSubscriptionCron } = require('./src/jobs/subscriptionExpiry');
@@ -123,6 +125,7 @@ app.use('/api/v1/logs', attachTimezone, loggingRoutes);
 app.use('/api/v1/super-admin/auth', attachTimezoneForSuperAdmin, superAdminAuthRoutes);
 app.use('/api/v1/super-admin/companies', attachTimezoneForSuperAdmin, superAdminCompanyRoutes);
 app.use('/api/v1/super-admin/subscriptions', attachTimezoneForSuperAdmin, superAdminSubscriptionRoutes);
+app.use('/api/v1/super-admin/subscription-management', attachTimezoneForSuperAdmin, subscriptionManagementRoutes);
 app.use('/api/v1/super-admin/payments', attachTimezoneForSuperAdmin, superAdminPaymentRoutes);
 app.use('/api/v1/super-admin/invoices', attachTimezoneForSuperAdmin, superAdminInvoiceRoutes);
 app.use('/api/v1/super-admin/notifications', attachTimezoneForSuperAdmin, superAdminnotificationRoutes);
