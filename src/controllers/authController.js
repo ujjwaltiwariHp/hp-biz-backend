@@ -453,13 +453,10 @@ const updateProfile = async (req, res) => {
       profileData.address = address;
     }
 
-    if (website !== undefined) {
-      // if (website && !/^https?:\/\/.+\..+/.test(website)) {
-      {
-        return errorResponse(res, 400, "Please provide a valid website URL");
-      }
-      profileData.website = website;
-    }
+     if (website !== undefined) {
+     profileData.website = website;
+}
+
 
     if (industry !== undefined) {
       profileData.industry = industry;
