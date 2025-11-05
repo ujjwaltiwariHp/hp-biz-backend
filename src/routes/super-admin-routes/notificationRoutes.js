@@ -7,7 +7,7 @@ const {
   sendRenewalReminder,
   markAsRead,
   generateNotifications,
-  getNotificationStats
+  getNotificationStatsController
 } = require('../../controllers/super-admin-controllers/notificationController');
 
 const {
@@ -23,7 +23,7 @@ const { requireSuperAdminPermission } = require('../../middleware/super-admin-mi
 router.use(authenticateSuperAdmin);
 
 router.get('/', requireSuperAdminPermission('notifications', 'view'), validateNotificationQuery, getNotifications);
-router.get('/stats', requireSuperAdminPermission('notifications', 'view'), getNotificationStats);
+router.get('/stats', requireSuperAdminPermission('notifications', 'view'), getNotificationStatsController);
 router.get('/expiring-subscriptions', requireSuperAdminPermission('notifications', 'view'), validateExpiringSubscriptions, getExpiringSubscriptionsController);
 
 router.post('/send-renewal-reminder', requireSuperAdminPermission('notifications', 'create'), validateRenewalReminder, sendRenewalReminder);

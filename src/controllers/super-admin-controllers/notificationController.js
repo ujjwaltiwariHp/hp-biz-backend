@@ -186,7 +186,7 @@ const generateNotifications = async (req, res) => {
   }
 };
 
-const getNotificationStats = async (req, res) => {
+const getNotificationStatsController = async (req, res) => {
   try {
     const stats = await getNotificationStats();
 
@@ -205,5 +205,5 @@ module.exports = {
   sendRenewalReminder,
   markAsRead,
   generateNotifications,
-  getNotificationStats
+  getNotificationStatsController
 };
