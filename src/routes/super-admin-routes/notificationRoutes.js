@@ -6,7 +6,8 @@ const {
   getExpiringSubscriptionsController,
   sendRenewalReminder,
   markAsRead,
-  generateNotifications
+  generateNotifications,
+  getNotificationStats
 } = require('../../controllers/super-admin-controllers/notificationController');
 
 const {
@@ -17,19 +18,17 @@ const {
 } = require('../../middleware/super-admin-middleware/notificationValidation');
 
 const { authenticateSuperAdmin } = require('../../middleware/super-admin-middleware/authMiddleware');
-const { requireSuperAdminPermission } = require('../../middleware/super-admin-middleware/superAdminPermissionMiddleware'); // ADDED IMPORT
+const { requireSuperAdminPermission } = require('../../middleware/super-admin-middleware/superAdminPermissionMiddleware');
 
 router.use(authenticateSuperAdmin);
 
-// View routes (Sub-Admin allowed)
 router.get('/', requireSuperAdminPermission('notifications', 'view'), validateNotificationQuery, getNotifications);
+router.get('/stats', requireSuperAdminPermission('notifications', 'view'), getNotificationStats);
 router.get('/expiring-subscriptions', requireSuperAdminPermission('notifications', 'view'), validateExpiringSubscriptions, getExpiringSubscriptionsController);
 
-// CRUD routes (Super-Admin only)
 router.post('/send-renewal-reminder', requireSuperAdminPermission('notifications', 'create'), validateRenewalReminder, sendRenewalReminder);
 router.post('/generate', requireSuperAdminPermission('notifications', 'create'), generateNotifications);
 
-// Status update (CRUD action)
 router.put('/:id/mark-read', requireSuperAdminPermission('notifications', 'update'), validateNotificationId, markAsRead);
 
 module.exports = router;
