@@ -4,7 +4,7 @@ const {
   createNotification,
   markNotificationAsRead,
   getNotificationById,
-  getNotificationStats,
+  getNotificationStats, // Imported here
   generateExpiringNotifications
 } = require('../../models/super-admin-models/notificationModel');
 const { getCompanyById } = require('../../models/super-admin-models/companyModel');
@@ -186,10 +186,24 @@ const generateNotifications = async (req, res) => {
   }
 };
 
+const getNotificationStats = async (req, res) => {
+  try {
+    const stats = await getNotificationStats();
+
+    return successResponse(res, "Notification statistics retrieved successfully", {
+      stats
+    });
+  } catch (error) {
+    return errorResponse(res, 500, "Failed to retrieve notification statistics");
+  }
+};
+
+
 module.exports = {
   getNotifications,
   getExpiringSubscriptionsController,
   sendRenewalReminder,
   markAsRead,
-  generateNotifications
+  generateNotifications,
+  getNotificationStats
 };
