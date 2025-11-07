@@ -51,8 +51,9 @@ const displayTaxRate = invoice.tax_rate_display || '0.00';
     doc.fillColor('#34495e').text('Due Date:', 350, 170, { continued: true })
       .fillColor('#c0392b').text(`  ${formatDate(invoice.due_date)}`, { align: 'left' });
 
-    doc.fillColor('#34495e').text('Status:', 350, 185, { continued: true })
-      .fillColor(invoice.status === 'paid' ? '#27ae60' : '#c0392b').text(`  ${invoice.status.toUpperCase()}`, { align: 'left' });
+doc.fillColor('#34495e').text('Status:', 350, 185, { continued: true })
+  .fillColor(['paid', 'payment_received'].includes(invoice.status) ? '#27ae60' : '#c0392b')
+  .text(`  ${invoice.status.toUpperCase()}`, { align: 'left' });
 
     doc.fontSize(10).fillColor('#34495e').text('Billed To:', 50, 140)
       .fillColor('#2c3e50').text(invoice.company_name, 50, 155, { width: 280 })
