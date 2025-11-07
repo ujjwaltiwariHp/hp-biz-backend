@@ -23,8 +23,10 @@ const generateInvoicePdf = (invoice, billingSettings) => {
     const sellerName = billingSettings?.company_name || 'HPBIZ Billing';
     const sellerAddress = billingSettings?.address || 'Address Not Provided';
     const sellerEmail = billingSettings?.email || 'billing@hpbiz.com';
-    const bankDetails = billingSettings?.bank_details ? JSON.parse(billingSettings.bank_details) : null;
-    const qrCodeUrl = billingSettings?.qr_code_image_url;
+
+
+    const bankDetails = billingSettings?.bank_details || null;
+
     const displayTaxRate = invoice.tax_rate_display || '0.00';
 
 
@@ -86,7 +88,7 @@ const generateInvoicePdf = (invoice, billingSettings) => {
         }
     }
 
-    if (featuresList.length > 0) {
+    if (featuresList && featuresList.length > 0) {
         doc.font('Helvetica-Oblique').fillColor('#555').fontSize(8)
            .text('Included Features:', descX + 5, rowY);
 
@@ -130,9 +132,9 @@ const generateInvoicePdf = (invoice, billingSettings) => {
 
     if (bankDetails) {
         doc.font('Helvetica').fillColor('#34495e').fontSize(9)
-          .text(`Bank Name: ${bankDetails.bank_name || 'N/A'}`, 50, paymentY)
-          .text(`Account No: ${bankDetails.account_number || 'N/A'}`, 50, paymentY + 10)
-          .text(`IFSC Code: ${bankDetails.ifsc_code || 'N/A'}`, 50, paymentY + 20);
+          .text(`Bank Name: ${bankDetails?.bank_name || 'N/A'}`, 50, paymentY)
+          .text(`Account No: ${bankDetails?.account_number || 'N/A'}`, 50, paymentY + 10)
+          .text(`IFSC Code: ${bankDetails?.ifsc_code || 'N/A'}`, 50, paymentY + 20);
     } else {
         doc.font('Helvetica').fillColor('#34495e').fontSize(9)
           .text('Payment details are currently not configured.', 50, paymentY);
