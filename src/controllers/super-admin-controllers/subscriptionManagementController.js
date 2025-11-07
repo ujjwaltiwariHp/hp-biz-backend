@@ -9,7 +9,7 @@ const { successResponse } = require('../../utils/successResponse');
 const { errorResponse } = require('../../utils/errorResponse');
 const { logSystemEvent } = require('../../models/loggingModel');
 const { generateInvoicePdf } = require('../../utils/pdfGenerator');
-
+const { getSettings: getBillingSettings } = require('../../models/super-admin-models/billingSettingsModel'); // ADDED IMPORT
 
 const initiateSubscriptionRequest = async (req, res) => {
   const companyId = req.params.id;
@@ -32,7 +32,7 @@ const initiateSubscriptionRequest = async (req, res) => {
     }
 
     const baseAmount = parseFloat(packageData.price);
-    const { tax_amount, total_amount } = calculateTaxAndTotal(baseAmount);
+    const { tax_amount, total_amount, tax_rate_display } = await calculateTaxAndTotal(baseAmount);
 
     const startDate = moment().tz(timezone).startOf('day');
     const endDate = calculateEndDate(startDate, duration_type, 1, timezone);
@@ -67,7 +67,7 @@ const initiateSubscriptionRequest = async (req, res) => {
 
     return successResponse(res, 'Subscription request initiated and invoice created.', {
       company: updatedCompany,
-      invoice: newInvoice
+      invoice: { ...newInvoice, tax_rate_display }
     }, 201, req);
 
   } catch (error) {
@@ -130,9 +130,10 @@ const approveSubscription = async (req, res) => {
     const superAdminName = req.superAdmin.name;
 
     try {
-        const [company, invoice] = await Promise.all([
+        const [company, invoice, billingSettings] = await Promise.all([
             getCompanyById(companyId),
-            getInvoiceById(invoice_id)
+            getInvoiceById(invoice_id),
+            getBillingSettings() // Fetch Billing Settings
         ]);
 
         if (!company || !invoice) {
@@ -167,6 +168,9 @@ const approveSubscription = async (req, res) => {
             subscription_end_date: endDate.toISOString()
         });
 
+        // Re-calculate tax for PDF generation with updated package price if necessary, and get the display rate.
+        const { tax_rate_display } = await calculateTaxAndTotal(packageData.price);
+
         const updatedInvoice = await updateInvoice(invoice_id, {
             status: 'paid',
             payment_date: new Date().toISOString()
@@ -175,8 +179,9 @@ const approveSubscription = async (req, res) => {
         const pdfBuffer = await generateInvoicePdf({
             ...invoice,
             ...updatedInvoice,
-            package_name: packageData.name
-        });
+            package_name: packageData.name,
+            tax_rate_display // Include display rate for the PDF
+        }, billingSettings); // Pass billingSettings
 
         await createSubscriptionActivationNotification(
             company,

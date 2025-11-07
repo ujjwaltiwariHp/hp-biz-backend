@@ -8,6 +8,8 @@ CREATE TABLE super_admins (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+
+
 -- 2. Subscription Packages Table
 CREATE TABLE subscription_packages (
     id SERIAL PRIMARY KEY,

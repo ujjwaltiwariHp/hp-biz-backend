@@ -159,7 +159,6 @@ const getAvailablePackages = async (req, res) => {
       packages: availablePackages
     }, 200, req);
   } catch (error) {
-    console.error('Get Available Packages Error:', error);
     return errorResponse(res, 500, "Failed to retrieve subscription packages for selection.");
   }
 };
@@ -208,7 +207,7 @@ const selectInitialSubscription = async (req, res) => {
     } else {
 
       const baseAmount = parseFloat(packageData.price);
-      const { tax_amount, total_amount } = calculateTaxAndTotal(baseAmount);
+      const { tax_amount, total_amount } = await calculateTaxAndTotal(baseAmount);
 
       const startDate = moment().tz(timezone).startOf('day');
       const endDate = calculateEndDate(startDate, duration_type, 1, timezone);

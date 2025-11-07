@@ -1,6 +1,6 @@
 const PDFDocument = require('pdfkit');
 
-const generateInvoicePdf = (invoice) => {
+const generateInvoicePdf = (invoice, billingSettings) => {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
     const buffers = [];
@@ -19,12 +19,22 @@ const generateInvoicePdf = (invoice) => {
 
     const formatDate = (date) => new Date(date).toLocaleDateString('en-GB');
 
+    // --- Dynamic Seller/Issuer Information ---
+    const sellerName = billingSettings?.company_name || 'HPBIZ Billing';
+    const sellerAddress = billingSettings?.address || 'Address Not Provided';
+    const sellerEmail = billingSettings?.email || 'billing@hpbiz.com';
+    const bankDetails = billingSettings?.bank_details ? JSON.parse(billingSettings.bank_details) : null;
+    const qrCodeUrl = billingSettings?.qr_code_image_url;
+    const displayTaxRate = invoice.tax_rate_display || '0.00';
+
+
     doc.fontSize(25).fillColor('#2c3e50').text('INVOICE', 50, 60);
 
+    // Use Dynamic Seller Info
     doc.fontSize(10).fillColor('#34495e')
-      .text('Super SaaS Billing', 50, 65, { align: 'right' })
-      .text('123 SaaS Lane, Cloud City, SA 90210', 50, 80, { align: 'right' })
-      .text('billing@supersaas.com', 50, 95, { align: 'right' });
+      .text(sellerName, 50, 65, { align: 'right' })
+      .text(sellerAddress, 50, 80, { align: 'right' })
+      .text(sellerEmail, 50, 95, { align: 'right' });
 
     doc.fillColor('#34495e').rect(50, 130, 510, 80).fillOpacity(0.05).fill().fillOpacity(1);
 
@@ -99,7 +109,8 @@ const generateInvoicePdf = (invoice) => {
       .text('Subtotal:', labelX, totalY, { width: 80 })
       .text(`${invoice.currency} ${amount.toFixed(2)}`, valueX, totalY, { width: 80, align: 'right' });
 
-    doc.text('Tax (0.0%):', labelX, totalY + 15, { width: 80 })
+    // Use Dynamic Tax Rate Display
+    doc.text(`Tax (${displayTaxRate}%):`, labelX, totalY + 15, { width: 80 })
       .text(`${invoice.currency} ${taxAmount.toFixed(2)}`, valueX, totalY + 15, { width: 80, align: 'right' });
 
     doc.strokeColor('#34495e').lineWidth(0.5)
@@ -111,9 +122,31 @@ const generateInvoicePdf = (invoice) => {
       .text('TOTAL PAID:', labelX, totalY + 45, { width: 80 })
       .text(`${invoice.currency} ${totalAmount.toFixed(2)}`, valueX, totalY + 45, { width: 80, align: 'right' });
 
+
+    // --- Dynamic Payment Instructions ---
+    let paymentY = 700;
+    doc.fontSize(10).font('Helvetica-Bold').fillColor('#2c3e50').text('Payment Instructions', 50, paymentY);
+    paymentY += 15;
+
+    if (bankDetails) {
+        doc.font('Helvetica').fillColor('#34495e').fontSize(9)
+          .text(`Bank Name: ${bankDetails.bank_name || 'N/A'}`, 50, paymentY)
+          .text(`Account No: ${bankDetails.account_number || 'N/A'}`, 50, paymentY + 10)
+          .text(`IFSC Code: ${bankDetails.ifsc_code || 'N/A'}`, 50, paymentY + 20);
+    } else {
+        doc.font('Helvetica').fillColor('#34495e').fontSize(9)
+          .text('Payment details are currently not configured.', 50, paymentY);
+    }
+
+    if (qrCodeUrl) {
+       doc.text(`QR Code Link: ${qrCodeUrl}`, 300, paymentY);
+    }
+    // --- End Dynamic Payment Instructions ---
+
+
     doc.fontSize(10).font('Helvetica').fillColor('#888')
       .text('Thank you for your business. This invoice confirms your payment and subscription activation.', 50, 750, { width: 510, align: 'center' })
-      .text('Contact us at billing@supersaas.com for payment inquiries.', 50, 765, { width: 510, align: 'center' });
+      .text(`Contact us at ${sellerEmail} for payment inquiries.`, 50, 765, { width: 510, align: 'center' });
 
     doc.end();
   });

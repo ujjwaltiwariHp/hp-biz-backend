@@ -16,6 +16,7 @@ const { calculateTaxAndTotal } = require('../../utils/calculationHelper');
 const { generateInvoicePdf } = require('../../utils/pdfGenerator');
 const { sendInvoiceEmail } = require('../../services/emailService');
 const { createNotification } = require('../../models/super-admin-models/notificationModel');
+const { getSettings: getBillingSettings } = require('../../models/super-admin-models/billingSettingsModel'); // ADDED IMPORT
 
 const generateInvoice = async (req, res) => {
   try {
@@ -36,7 +37,7 @@ const generateInvoice = async (req, res) => {
       return errorResponse(res, 400, "Invalid or missing invoice amount.");
     }
 
-    const { tax_amount, total_amount } = calculateTaxAndTotal(baseAmount);
+    const { tax_amount, total_amount, tax_rate_display } = await calculateTaxAndTotal(baseAmount);
 
     const invoiceData = {
       company_id: payment ? payment.company_id : company_id,
@@ -44,9 +45,6 @@ const generateInvoice = async (req, res) => {
       amount: baseAmount,
       tax_amount,
       total_amount,
-      billing_period_start,
-      billing_period_end,
-      due_date,
       currency: 'USD'
     };
 
@@ -73,7 +71,7 @@ const generateInvoice = async (req, res) => {
         appliedPayments.push({ payment_id: pay.id, applied_amount: amountToApply });
       }
     }
-    return successResponse(res, { invoice: newInvoice, applied_payments: appliedPayments, outstanding_balance: outstandingBalance });
+    return successResponse(res, { invoice: { ...newInvoice, tax_rate_display }, applied_payments: appliedPayments, outstanding_balance: outstandingBalance });
   } catch (error) {
     if (error.code === '23503') {
       return errorResponse(res, 400, "Invalid Company ID or Subscription Package ID");
@@ -170,7 +168,7 @@ const updateInvoiceDetails = async (req, res) => {
     }
 
     if (updateBody.amount) {
-      const { tax_amount, total_amount } = calculateTaxAndTotal(updateBody.amount);
+      const { tax_amount, total_amount } = await calculateTaxAndTotal(updateBody.amount);
       updateBody.tax_amount = tax_amount;
       updateBody.total_amount = total_amount;
     }
@@ -231,13 +229,16 @@ const removeInvoice = async (req, res) => {
 const downloadInvoice = async (req, res) => {
   try {
     const { id } = req.params;
-    const invoice = await getInvoiceById(parseInt(id));
+    const [invoice, billingSettings] = await Promise.all([ // MODIFICATION: Fetch billingSettings
+      getInvoiceById(parseInt(id)),
+      getBillingSettings()
+    ]);
 
     if (!invoice) {
       return errorResponse(res, 404, "Invoice not found");
     }
 
-    const pdfBuffer = await generateInvoicePdf(invoice);
+    const pdfBuffer = await generateInvoicePdf(invoice, billingSettings);
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename=invoice-${invoice.invoice_number}.pdf`);
@@ -251,13 +252,16 @@ const downloadInvoice = async (req, res) => {
 const sendInvoiceEmailController = async (req, res) => {
   try {
     const { id } = req.params;
-    const invoice = await getInvoiceById(parseInt(id));
+    const [invoice, billingSettings] = await Promise.all([ // MODIFICATION: Fetch billingSettings
+      getInvoiceById(parseInt(id)),
+      getBillingSettings()
+    ]);
 
     if (!invoice) {
       return errorResponse(res, 404, "Invoice not found");
     }
 
-    const pdfBuffer = await generateInvoicePdf(invoice);
+    const pdfBuffer = await generateInvoicePdf(invoice, billingSettings);
 
     await sendInvoiceEmail(invoice, pdfBuffer);
 

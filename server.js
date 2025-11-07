@@ -20,6 +20,7 @@ const superAdminInvoiceRoutes = require('./src/routes/super-admin-routes/invoice
 const superAdminnotificationRoutes = require('./src/routes/super-admin-routes/notificationRoutes');
 const superAdminLoggingRoutes = require('./src/routes/super-admin-routes/loggingRoutes');
 const subscriptionManagementRoutes = require('./src/routes/super-admin-routes/subscriptionManagementRoutes');
+const superAdminBillingSettingsRoutes = require('./src/routes/super-admin-routes/billingSettingsRoutes');
 
 const swaggerDocs = require('./src/config/swagger');
 const { startOtpCleanupJob } = require('./src/jobs/otpCleanup');
@@ -130,6 +131,7 @@ app.use('/api/v1/super-admin/payments', attachTimezoneForSuperAdmin, superAdminP
 app.use('/api/v1/super-admin/invoices', attachTimezoneForSuperAdmin, superAdminInvoiceRoutes);
 app.use('/api/v1/super-admin/notifications', attachTimezoneForSuperAdmin, superAdminnotificationRoutes);
 app.use('/api/v1/super-admin/logs', attachTimezoneForSuperAdmin, superAdminLoggingRoutes);
+app.use('/api/v1/super-admin/billing-settings', attachTimezoneForSuperAdmin, superAdminBillingSettingsRoutes);
 
 app.use((req, res) => {
   res.status(404).json({
