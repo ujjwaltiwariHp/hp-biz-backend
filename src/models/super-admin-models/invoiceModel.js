@@ -133,7 +133,8 @@ const getInvoiceById = async (id) => {
       SELECT
         i.*,
         c.company_name, c.admin_email as billing_email, c.address as billing_address,
-        sp.name as package_name
+        sp.name as package_name,
+        sp.features as features
       FROM invoices i
       JOIN companies c ON i.company_id = c.id
       JOIN subscription_packages sp ON i.subscription_package_id = sp.id
