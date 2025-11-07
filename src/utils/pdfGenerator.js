@@ -24,10 +24,10 @@ const generateInvoicePdf = (invoice, billingSettings) => {
     const sellerAddress = billingSettings?.address || 'Address Not Provided';
     const sellerEmail = billingSettings?.email || 'billing@hpbiz.com';
 
-
     const bankDetails = billingSettings?.bank_details || null;
+    const qrCodeUrl = billingSettings?.qr_code_image_url || null;
 
-    const displayTaxRate = invoice.tax_rate_display || '0.00';
+const displayTaxRate = invoice.tax_rate_display || '0.00';
 
 
     doc.fontSize(25).fillColor('#2c3e50').text('INVOICE', 50, 60);
