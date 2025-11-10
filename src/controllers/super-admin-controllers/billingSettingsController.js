@@ -12,7 +12,6 @@ const getBillingSettings = async (req, res) => {
 
     return successResponse(res, "Billing settings retrieved successfully", { settings });
   } catch (error) {
-    // TEMPORARY DEBUG: Log the specific error message
     console.error("Billing Settings API Error:", error);
     return errorResponse(res, 500, "Failed to retrieve billing settings");
   }
@@ -20,7 +19,17 @@ const getBillingSettings = async (req, res) => {
 
 const updateBillingSettings = async (req, res) => {
   try {
-    const updatedSettings = await updateSettings(req.body);
+    const updateData = req.body;
+
+    // --- UNIFIED LOGIC: Handles file from 'multipart/form-data' ---
+    if (req.file) {
+      // If a new file was uploaded, construct the public URL path
+      const publicPath = `/uploads/qr_codes/${req.file.filename}`;
+      updateData.qr_code_image_url = publicPath;
+    }
+    // The database model automatically ignores any fields not in its schema.
+
+    const updatedSettings = await updateSettings(updateData);
 
     if (!updatedSettings) {
       return errorResponse(res, 500, "Failed to update billing settings");
