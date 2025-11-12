@@ -82,12 +82,15 @@ const authenticateStaff = async (req, res, next) => {
 
 const authenticateAny = async (req, res, next) => {
   try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
+    // FINAL: Only check Authorization header for production security.
+    let token = req.header('Authorization')?.replace('Bearer ', '');
+
     if (!token) {
       return errorResponse(res, 401, "Access token required");
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
 
     if (decoded.type === 'staff') {
       const staff = await getStaffById(decoded.id, decoded.company_id);
@@ -118,6 +121,7 @@ const authenticateAny = async (req, res, next) => {
 
     next();
   } catch (error) {
+    // Catch-all for database or other errors
     return errorResponse(res, 401, "Invalid or expired token");
   }
 };

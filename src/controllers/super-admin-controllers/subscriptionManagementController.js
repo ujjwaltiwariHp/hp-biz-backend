@@ -9,7 +9,8 @@ const { successResponse } = require('../../utils/successResponse');
 const { errorResponse } = require('../../utils/errorResponse');
 const { logSystemEvent } = require('../../models/loggingModel');
 const { generateInvoicePdf } = require('../../utils/pdfGenerator');
-const { getSettings: getBillingSettings } = require('../../models/super-admin-models/billingSettingsModel'); // ADDED IMPORT
+const { getSettings: getBillingSettings } = require('../../models/super-admin-models/billingSettingsModel');
+const sseService = require('../../services/sseService');
 
 const initiateSubscriptionRequest = async (req, res) => {
   const companyId = req.params.id;
@@ -65,13 +66,14 @@ const initiateSubscriptionRequest = async (req, res) => {
         message: `Subscription request initiated for Invoice #${newInvoice.invoice_number} by SA:${superAdminId}. Status: pending.`
     });
 
+    sseService.broadcast('sa_subscription_status_update', { action: 'initiated', companyId: companyId, newStatus: 'pending' });
+
     return successResponse(res, 'Subscription request initiated and invoice created.', {
       company: updatedCompany,
       invoice: { ...newInvoice, tax_rate_display }
     }, 201, req);
 
   } catch (error) {
-    console.error('Initiate Subscription Request Error:', error);
     return errorResponse(res, 500, 'Failed to initiate subscription request.');
   }
 };
@@ -113,13 +115,15 @@ const markPaymentReceived = async (req, res) => {
             message: `Payment verified and status set to 'payment_received' for Invoice #${invoice.invoice_number} by SA:${superAdminId}.`
         });
 
+        sseService.broadcast('sa_subscription_status_update', { action: 'payment_received', companyId: companyId, newStatus: 'payment_received' });
+        sseService.broadcast('sa_finance_update', { action: 'invoice_status_change', invoiceId: invoice_id, newStatus: 'payment_received' });
+
         return successResponse(res, 'Payment marked as received and verified. Ready for Subscription Approval.', {
             company: updatedCompany,
             invoice_status: 'payment_received'
         }, 200, req);
 
     } catch (error) {
-        console.error('Mark Payment Received Error:', error);
         return errorResponse(res, 500, 'Failed to mark payment as received.');
     }
 };
@@ -133,7 +137,7 @@ const approveSubscription = async (req, res) => {
         const [company, invoice, billingSettings] = await Promise.all([
             getCompanyById(companyId),
             getInvoiceById(invoice_id),
-            getBillingSettings() // Fetch Billing Settings
+            getBillingSettings()
         ]);
 
         if (!company || !invoice) {
@@ -168,7 +172,6 @@ const approveSubscription = async (req, res) => {
             subscription_end_date: endDate.toISOString()
         });
 
-        // Re-calculate tax for PDF generation with updated package price if necessary, and get the display rate.
         const { tax_rate_display } = await calculateTaxAndTotal(packageData.price);
 
         const updatedInvoice = await updateInvoice(invoice_id, {
@@ -180,8 +183,8 @@ const approveSubscription = async (req, res) => {
             ...invoice,
             ...updatedInvoice,
             package_name: packageData.name,
-            tax_rate_display // Include display rate for the PDF
-        }, billingSettings); // Pass billingSettings
+            tax_rate_display
+        }, billingSettings);
 
         await createSubscriptionActivationNotification(
             company,
@@ -200,8 +203,10 @@ const approveSubscription = async (req, res) => {
                 message: `Subscription successfully APPROVED and activated by SA:${req.superAdmin.id}. End date: ${moment(endDate).format('YYYY-MM-DD')}.`
             });
         } catch (logError) {
-            console.error('Non-critical: Failed to log system event after successful activation:', logError);
         }
+
+        sseService.broadcast('sa_subscription_status_update', { action: 'approved', companyId: companyId, newStatus: 'approved' });
+        sseService.broadcast('sa_company_list_refresh', { action: 'subscription_approved', companyId: companyId });
 
         return successResponse(res, 'Subscription approved and company activated successfully.', {
             company: updatedCompany,
@@ -210,7 +215,6 @@ const approveSubscription = async (req, res) => {
         }, 200, req);
 
     } catch (error) {
-        console.error('Approve Subscription Error:', error);
         return errorResponse(res, 500, 'Failed to approve subscription and activate company.');
     }
 };
@@ -248,13 +252,15 @@ const rejectSubscription = async (req, res) => {
             message: `Subscription REJECTED by SA:${req.superAdmin.id} for Invoice #${invoice.invoice_number}. Reason: ${rejection_reason}.`
         });
 
+        sseService.broadcast('sa_subscription_status_update', { action: 'rejected', companyId: companyId, newStatus: 'rejected' });
+        sseService.broadcast('sa_company_list_refresh', { action: 'subscription_rejected', companyId: companyId });
+
         return successResponse(res, 'Subscription request rejected and invoice cancelled.', {
             company: updatedCompany,
             invoice_status: 'rejected'
         }, 200, req);
 
     } catch (error) {
-        console.error('Reject Subscription Error:', error);
         return errorResponse(res, 500, 'Failed to reject subscription request.');
     }
 };

@@ -1,4 +1,5 @@
 const pool = require("../config/database");
+const sseService = require('../services/sseService');
 
 const createNotification = async (data) => {
   const {
@@ -17,7 +18,23 @@ const createNotification = async (data) => {
      TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as created_at`,
     [company_id, staff_id, title, message, type, related_lead_id, priority]
   );
-  return result.rows[0];
+
+  const notification = result.rows[0];
+
+  if (notification.staff_id) {
+    const staffKey = `s_${notification.staff_id}`;
+    const notificationData = {
+        id: notification.id,
+        title: notification.title,
+        message: notification.message,
+        type: notification.type,
+        priority: notification.priority,
+        is_read: notification.is_read
+    };
+    sseService.publish(staffKey, 'new_staff_notification', notificationData);
+  }
+
+  return notification;
 };
 
 const getNotifications = async (staffId, companyId, limit = 50, offset = 0) => {
@@ -162,7 +179,25 @@ const createBulkNotifications = async (notifications) => {
   `;
 
   const result = await pool.query(query, values);
-  return result.rows;
+
+  const createdNotifications = result.rows;
+
+  for (const notification of createdNotifications) {
+      if (notification.staff_id) {
+          const staffKey = `s_${notification.staff_id}`;
+          const notificationData = {
+              id: notification.id,
+              title: notification.title,
+              message: notification.message,
+              type: notification.type,
+              priority: notification.priority,
+              is_read: notification.is_read
+          };
+          sseService.publish(staffKey, 'new_staff_notification', notificationData);
+      }
+  }
+
+  return createdNotifications;
 };
 
 const getAdminStaffId = async (companyId) => {

@@ -1,4 +1,5 @@
 const pool = require('../../config/database');
+const sseService = require('../../services/sseService');
 
 const getAllNotifications = async (limit = 10, offset = 0, filters = {}) => {
   try {
@@ -112,7 +113,25 @@ const createNotification = async (notificationData) => {
       metadata ? JSON.stringify(metadata) : null
     ]);
 
-    return result.rows[0];
+    const notification = result.rows[0];
+
+    const eventData = {
+        id: notification.id,
+        title: notification.title,
+        message: notification.message,
+        type: notification.notification_type,
+        priority: notification.priority,
+        is_read: notification.is_read
+    };
+
+    if (notification.super_admin_id) {
+        const saKey = `sa_${notification.super_admin_id}`;
+        sseService.publish(saKey, 'new_sa_notification', eventData);
+    } else {
+        sseService.broadcast('new_sa_notification', eventData);
+    }
+
+    return notification;
   } catch (error) {
     throw error;
   }

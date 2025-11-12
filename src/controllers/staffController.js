@@ -3,6 +3,7 @@ const { successResponse, successResponseWithPagination } = require("../utils/res
 const { errorResponse } = require("../utils/errorResponse");
 const { sendStaffWelcomeEmail } = require('../services/emailService');
 const { parseAndConvertToUTC } = require('../utils/timezoneHelper');
+const sseService = require('../services/sseService');
 
 
 const getAllStaff = async (req, res) => {
@@ -101,6 +102,8 @@ const createStaff = async (req, res) => {
       }
     };
 
+    sseService.publish(`c_${company_id}`, 'staff_list_refresh', { action: 'created', staffId: staffDetails.id });
+
     return successResponse(
       res,
       "Staff created successfully. An email with login instructions has been sent.",
@@ -153,6 +156,8 @@ const updateStaff = async (req, res) => {
     if (!updatedStaff) return errorResponse(res, 404, "Staff not found or unauthorized");
     const staffWithRole = await Staff.getStaffById(req.params.id, companyId);
 
+    sseService.publish(`c_${companyId}`, 'staff_list_refresh', { action: 'updated', staffId: req.params.id });
+
     return successResponse(res, "Staff updated successfully", staffWithRole, 200, req);
   } catch (err) {
     if (err.message === "Cannot deactivate the last admin user") {
@@ -161,12 +166,14 @@ const updateStaff = async (req, res) => {
     return errorResponse(res, 500, err.message);
   }
 };
-
 const deleteStaff = async (req, res) => {
   try {
     const companyId = req.company.id;
     const deleted = await Staff.deleteStaff(req.params.id, companyId);
     if (!deleted) return errorResponse(res, 404, "Staff not found or unauthorized");
+
+    sseService.publish(`c_${companyId}`, 'staff_list_refresh', { action: 'deleted', staffId: req.params.id });
+
     return successResponse(res, "Staff deleted successfully", {}, 200, req);
   } catch (err) {
     if (err.message === "Cannot delete the last admin user") {
@@ -187,6 +194,9 @@ const updateStaffStatus = async (req, res) => {
 
     const updated = await Staff.updateStaffStatus(req.params.id, status, companyId);
     if (!updated) return errorResponse(res, 404, "Staff not found or unauthorized");
+
+    sseService.publish(`c_${companyId}`, 'staff_list_refresh', { action: 'status_updated', staffId: req.params.id, newStatus: status });
+
     return successResponse(res, "Staff status updated", updated, 200, req);
   } catch (err) {
     if (err.message === "Cannot deactivate the last admin user") {

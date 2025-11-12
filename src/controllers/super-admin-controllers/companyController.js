@@ -17,6 +17,7 @@ const { generateOTP } = require('../../utils/generateOTP');
 const { generateCompanyRegistrationNotification } = require('../../models/super-admin-models/notificationModel');
 const { successResponse } = require('../../utils/successResponse');
 const { errorResponse } = require('../../utils/errorResponse');
+const sseService = require('../../services/sseService');
 
 const getCompanies = async (req, res) => {
   try {
@@ -127,6 +128,8 @@ const activateCompanyAccount = async (req, res) => {
       return errorResponse(res, 500, "Failed to activate company");
     }
 
+    sseService.broadcast('sa_company_list_refresh', { action: 'activated', companyId: id });
+
     return successResponse(res, "Company activated successfully", {
       company: updatedCompany
     });
@@ -157,6 +160,8 @@ const deactivateCompanyAccount = async (req, res) => {
     if (!updatedCompany) {
       return errorResponse(res, 500, "Failed to deactivate company");
     }
+
+    sseService.broadcast('sa_company_list_refresh', { action: 'deactivated', companyId: id });
 
     return successResponse(res, "Company deactivated successfully", {
       company: updatedCompany
@@ -205,6 +210,8 @@ const updateSubscription = async (req, res) => {
       return errorResponse(res, 500, "Failed to update subscription");
     }
 
+    sseService.broadcast('sa_company_list_refresh', { action: 'subscription_updated', companyId: id });
+
     return successResponse(res, "Company subscription updated successfully", {
       company: updatedCompany
     });
@@ -234,6 +241,8 @@ const removeCompany = async (req, res) => {
     if (!deletedCompany) {
       return errorResponse(res, 500, "Failed to delete company");
     }
+
+    sseService.broadcast('sa_company_list_refresh', { action: 'deleted', companyId: id });
 
     return successResponse(res, "Company deleted successfully", {
       deletedCompany: {
@@ -322,7 +331,6 @@ const getUsageReport = async (req, res) => {
 
     const summary = {
       totalCompanies: report.length,
-      // The total leads and activities are correctly calculated by summing the results from the model's SQL fix
       totalLeads: report.reduce((sum, company) => sum + company.leads_count, 0),
       totalActivities: report.reduce((sum, company) => sum + company.activities_count, 0)
     };
@@ -383,7 +391,6 @@ const createCompanyByAdmin = async (req, res) => {
 
             await createResetOTP({ email: admin_email, otp, expires_at: expiresAt });
 
-            // Note: We use sendResetOTPEmail for the OTP delivery, but it acts as a secure activation link
             await sendResetOTPEmail(admin_email, otp);
         }
 
@@ -393,6 +400,8 @@ const createCompanyByAdmin = async (req, res) => {
             admin_email,
             subscription_package_id
         });
+
+        sseService.broadcast('sa_company_list_refresh', { action: 'created', companyId: newCompany.id });
 
         return successResponse(res, "Company created and subscription assigned successfully. Activation OTP sent to admin email.", {
             company: {
@@ -405,7 +414,6 @@ const createCompanyByAdmin = async (req, res) => {
         }, 201);
 
     } catch (error) {
-        console.error('Super Admin Create Company Error:', error);
         if (error.message.includes('foreign key')) {
             return errorResponse(res, 400, "Invalid Subscription Package ID provided.");
         }

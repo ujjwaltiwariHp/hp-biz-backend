@@ -4,6 +4,7 @@ const { errorResponse } = require("../utils/errorResponse");
 const NotificationService = require("../services/notificationService");
 const { parseAndConvertToUTC } = require('../utils/timezoneHelper');
 const Staff = require("../models/staffModel");
+const sseService = require('../services/sseService');
 
 const createLead = async (req, res) => {
   try {
@@ -77,6 +78,8 @@ const createLead = async (req, res) => {
       );
     }
 
+    sseService.publish(`c_${company_id}`, 'leads_list_refresh', { action: 'created', leadId: newLead.id });
+
     return successResponse(res, "Lead created successfully", createdLeadWithDetails, 201, req);
   } catch (err) {
     return errorResponse(res, 500, "Failed to create lead. " + err.message);
@@ -145,6 +148,8 @@ const updateLead = async (req, res) => {
         'Lead information updated'
       );
     }
+
+    sseService.publish(`c_${companyId}`, 'leads_list_refresh', { action: 'updated', leadId: req.params.id });
 
     return successResponse(res, "Lead updated successfully", leadWithDetails, 200, req);
   } catch (err) {
@@ -227,6 +232,8 @@ const bulkUploadLeads = async (req, res) => {
       );
     }
 
+    sseService.publish(`c_${companyId}`, 'leads_list_refresh', { action: 'bulk_created', count: successCount });
+
     return successResponse(res, "Bulk upload complete.", {
       totalRows: leadsToCreate.length,
       imported: successCount,
@@ -285,6 +292,8 @@ const updateLeadStatus = async (req, res) => {
       );
     }
 
+    sseService.publish(`c_${companyId}`, 'leads_list_refresh', { action: 'status_updated', leadId: req.params.id, newStatusId: status_id });
+
     return successResponse(res, "Lead status updated", updatedLead, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
@@ -329,6 +338,8 @@ const deleteLead = async (req, res) => {
         companyId
       );
     }
+
+    sseService.publish(`c_${companyId}`, 'leads_list_refresh', { action: 'deleted', leadId: req.params.id });
 
     return successResponse(res, "Lead deleted successfully", {}, 200, req);
   } catch (err) {
