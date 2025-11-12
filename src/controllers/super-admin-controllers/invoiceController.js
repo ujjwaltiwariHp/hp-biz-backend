@@ -16,7 +16,8 @@ const { calculateTaxAndTotal } = require('../../utils/calculationHelper');
 const { generateInvoicePdf } = require('../../utils/pdfGenerator');
 const { sendInvoiceEmail } = require('../../services/emailService');
 const { createNotification } = require('../../models/super-admin-models/notificationModel');
-const { getSettings: getBillingSettings } = require('../../models/super-admin-models/billingSettingsModel'); // ADDED IMPORT
+const { getSettings: getBillingSettings } = require('../../models/super-admin-models/billingSettingsModel');
+const sseService = require('../../services/sseService');
 
 const generateInvoice = async (req, res) => {
   try {
@@ -71,6 +72,9 @@ const generateInvoice = async (req, res) => {
         appliedPayments.push({ payment_id: pay.id, applied_amount: amountToApply });
       }
     }
+
+    sseService.broadcast('sa_finance_update', { action: 'invoice_generated', invoiceId: newInvoice.id });
+
     return successResponse(res, { invoice: { ...newInvoice, tax_rate_display }, applied_payments: appliedPayments, outstanding_balance: outstandingBalance });
   } catch (error) {
     if (error.code === '23503') {
@@ -167,6 +171,8 @@ const updateInvoiceDetails = async (req, res) => {
       return errorResponse(res, 404, "Invoice not found");
     }
 
+    const oldStatus = existingInvoice.status;
+
     if (updateBody.amount) {
       const { tax_amount, total_amount } = await calculateTaxAndTotal(updateBody.amount);
       updateBody.tax_amount = tax_amount;
@@ -179,12 +185,18 @@ const updateInvoiceDetails = async (req, res) => {
       return errorResponse(res, 500, "Failed to update invoice");
     }
 
-    if (updateBody.status && updateBody.status !== existingInvoice.status) {
+    if (updateBody.status && updateBody.status !== oldStatus) {
         await logSystemEvent({
             company_id: updatedInvoice.company_id,
             log_level: 'INFO',
             log_category: 'INVOICE',
             message: `Invoice #${updatedInvoice.invoice_number} status manually updated to ${updatedInvoice.status}.`
+        });
+
+        sseService.broadcast('sa_finance_update', {
+            action: 'invoice_status_change',
+            invoiceId: updatedInvoice.id,
+            newStatus: updatedInvoice.status
         });
     }
 
@@ -211,6 +223,8 @@ const removeInvoice = async (req, res) => {
       return errorResponse(res, 404, "Invoice not found");
     }
 
+    sseService.broadcast('sa_finance_update', { action: 'invoice_deleted', invoiceId: id });
+
     return successResponse(res, "Invoice deleted successfully", {
       deletedInvoice: {
         id: deletedInvoice.id,
@@ -229,7 +243,7 @@ const removeInvoice = async (req, res) => {
 const downloadInvoice = async (req, res) => {
   try {
     const { id } = req.params;
-    const [invoice, billingSettings] = await Promise.all([ // MODIFICATION: Fetch billingSettings
+    const [invoice, billingSettings] = await Promise.all([
       getInvoiceById(parseInt(id)),
       getBillingSettings()
     ]);
@@ -244,7 +258,6 @@ const downloadInvoice = async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename=invoice-${invoice.invoice_number}.pdf`);
     res.send(pdfBuffer);
   } catch (error) {
-    console.error("PDF Generation Error:", error);
     return errorResponse(res, 500, "Failed to generate PDF for invoice");
   }
 };
@@ -252,7 +265,7 @@ const downloadInvoice = async (req, res) => {
 const sendInvoiceEmailController = async (req, res) => {
   try {
     const { id } = req.params;
-    const [invoice, billingSettings] = await Promise.all([ // MODIFICATION: Fetch billingSettings
+    const [invoice, billingSettings] = await Promise.all([
       getInvoiceById(parseInt(id)),
       getBillingSettings()
     ]);
@@ -267,13 +280,14 @@ const sendInvoiceEmailController = async (req, res) => {
 
     const updatedInvoice = await updateInvoice(parseInt(id), { status: 'sent' });
 
+    sseService.broadcast('sa_finance_update', { action: 'invoice_sent', invoiceId: id });
+
     return successResponse(res, "Invoice sent successfully via email", {
       invoice_id: updatedInvoice.id,
       invoice_number: updatedInvoice.invoice_number,
       email: updatedInvoice.billing_email
     });
   } catch (error) {
-    console.error("Error sending invoice email:", error);
     return errorResponse(res, 500, "Failed to send invoice email");
   }
 };
@@ -331,6 +345,8 @@ const markPaymentReceived = async (req, res) => {
             });
         } catch (notificationError) {
         }
+
+        sseService.broadcast('sa_finance_update', { action: 'payment_received_verified', invoiceId: updatedInvoice.id });
 
         return successResponse(res, 'Payment marked as received and verified. Ready for Subscription Approval.', {
             invoice: updatedInvoice,
