@@ -2,6 +2,7 @@ const moment = require('moment-timezone');
 const { errorResponse } = require('../utils/errorResponse');
 const { getCurrentStaffCount } = require('../models/staffModel');
 const { getLeadsCreatedThisMonth } = require('../models/leadsModel');
+const pool = require("../config/database");
 
 const PASSTHROUGH_STATUSES = ['pending', 'payment_received', 'trial'];
 
@@ -30,6 +31,7 @@ const getCompanySubscriptionAndUsage = async (req, res, next) => {
             features: features,
             max_staff_count: parseInt(packageData.max_staff_count, 10) || 0,
             max_leads_per_month: parseInt(packageData.max_leads_per_month, 10) || 0,
+            max_custom_fields: parseInt(packageData.max_custom_fields, 10) || 0,
             is_trial: packageData.is_trial,
             expires_at: packageData.subscription_end_date,
             subscription_status: packageData.subscription_status
@@ -61,7 +63,6 @@ const checkSubscriptionActive = (req, res, next) => {
         return errorResponse(res, 403, 'Subscription inactive or expired. Please renew your plan.');
     }
 
-    // Fully approved and active
     next();
 };
 
@@ -84,7 +85,6 @@ const checkLeadLimit = (req, res, next) => {
         leadsToCreate = req.leadsToCreate.length;
     }
 
-    // Allows unlimited leads if the limit is 0 or less (often used for unlimited plans)
     if (sub.max_leads_per_month <= 0) {
         return next();
     }

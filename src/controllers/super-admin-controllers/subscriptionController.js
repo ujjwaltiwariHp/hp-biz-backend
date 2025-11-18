@@ -54,7 +54,7 @@ const getPackage = async (req, res) => {
 
 const createSubscriptionPackage = async (req, res) => {
   try {
-    const { name, duration_type, price, features, max_staff_count, max_leads_per_month, is_trial, trial_duration_days } = req.body;
+    const { name, duration_type, price, features, max_staff_count, max_leads_per_month, is_trial, trial_duration_days, max_custom_fields } = req.body;
 
     const packageExists = await checkPackageExists(name);
     if (packageExists) {
@@ -81,7 +81,8 @@ const createSubscriptionPackage = async (req, res) => {
       max_staff_count,
       max_leads_per_month,
       is_trial: is_trial || false,
-      trial_duration_days: trial_duration_days || 0
+      trial_duration_days: trial_duration_days || 0,
+      max_custom_fields: max_custom_fields || 0
     });
 
     return successResponse(res, "Subscription package created successfully", {
@@ -95,7 +96,7 @@ const createSubscriptionPackage = async (req, res) => {
 const updateSubscriptionPackage = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, duration_type, price, features, max_staff_count, max_leads_per_month, is_trial, trial_duration_days, is_active } = req.body;
+    const { name, duration_type, price, features, max_staff_count, max_leads_per_month, is_trial, trial_duration_days, is_active, max_custom_fields } = req.body;
 
     if (!id || isNaN(parseInt(id))) {
       return errorResponse(res, 400, "Invalid package ID provided");
@@ -120,7 +121,8 @@ const updateSubscriptionPackage = async (req, res) => {
         max_leads_per_month,
         is_trial: is_trial !== undefined ? is_trial : existingPackage.is_trial,
         trial_duration_days: trial_duration_days !== undefined ? trial_duration_days : existingPackage.trial_duration_days,
-        is_active
+        is_active,
+        max_custom_fields
     };
 
     if (updateData.is_trial && (!updateData.trial_duration_days || parseInt(updateData.trial_duration_days) <= 0)) {
@@ -196,7 +198,6 @@ const toggleStatus = async (req, res) => {
       return errorResponse(res, 404, "Subscription package not found");
     }
 
-    // Business rule: Prevent deactivation if active companies are subscribed
     if (existingPackage.is_active) {
         const activeCompanyCount = await countActiveCompaniesByPackage(id);
         if (activeCompanyCount > 0) {

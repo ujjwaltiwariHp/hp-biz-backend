@@ -553,6 +553,10 @@ const getProfile = async (req, res) => {
 
       const packageFeatures = company.features || [];
 
+      const cleanFeatures = Array.isArray(packageFeatures)
+        ? packageFeatures.filter(f => !f.includes('max_custom_fields'))
+        : [];
+
       const profileData = {
         company: {
           id: company.id,
@@ -575,10 +579,11 @@ const getProfile = async (req, res) => {
           package_name: company.package_name,
           max_staff: company.max_staff_count,
           max_leads_per_month: company.max_leads_per_month,
+          max_custom_fields: company.max_custom_fields,
           expires_at: company.subscription_end_date,
           days_remaining: daysRemaining,
           is_trial: company.is_trial,
-          features: packageFeatures
+          features: cleanFeatures
         },
         usage: {
           staff_count: staffCount,

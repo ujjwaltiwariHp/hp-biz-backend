@@ -33,7 +33,6 @@ const getPackageById = async (id) => {
   try {
     const packageId = parseInt(id);
 
-    // FIX: Check for NaN/invalid ID before querying PostgreSQL
     if (isNaN(packageId) || packageId <= 0) {
         return null;
     }
@@ -56,7 +55,6 @@ const getPackageById = async (id) => {
 
 const getTrialPackage = async () => {
   try {
-    // Fetch all necessary details for trial assignment and UI presentation
     const query = `
       SELECT id, name, max_staff_count, max_leads_per_month, features::text, trial_duration_days
       FROM subscription_packages
@@ -86,12 +84,12 @@ const countActiveCompaniesByPackage = async (packageId) => {
 
 const createPackage = async (packageData) => {
   try {
-    const { name, duration_type, price, features, max_staff_count, max_leads_per_month, is_trial, trial_duration_days, is_active } = packageData;
+    const { name, duration_type, price, features, max_staff_count, max_leads_per_month, is_trial, trial_duration_days, is_active, max_custom_fields } = packageData;
 
     const query = `
       INSERT INTO subscription_packages (
-        name, duration_type, price, features, max_staff_count, max_leads_per_month, is_trial, trial_duration_days, is_active
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        name, duration_type, price, features, max_staff_count, max_leads_per_month, is_trial, trial_duration_days, is_active, max_custom_fields
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *
     `;
 
@@ -104,7 +102,8 @@ const createPackage = async (packageData) => {
       parseInt(max_leads_per_month),
       is_trial || false,
       is_trial ? parseInt(trial_duration_days) : 0,
-      is_active !== undefined ? is_active : true
+      is_active !== undefined ? is_active : true,
+      parseInt(max_custom_fields)
     ]);
 
     return jsonParse(result.rows[0]);
@@ -115,14 +114,14 @@ const createPackage = async (packageData) => {
 
 const updatePackage = async (id, packageData) => {
   try {
-    // Construct dynamic update query to handle partial updates cleanly
     const fields = [];
     const values = [parseInt(id)];
     let paramIndex = 2;
 
     const allowedFields = [
         'name', 'duration_type', 'price', 'max_staff_count',
-        'max_leads_per_month', 'is_trial', 'trial_duration_days', 'is_active', 'features'
+        'max_leads_per_month', 'is_trial', 'trial_duration_days', 'is_active', 'features',
+        'max_custom_fields'
     ];
 
     allowedFields.forEach(key => {
@@ -131,7 +130,7 @@ const updatePackage = async (id, packageData) => {
 
             if (key === 'features') {
                  values.push(JSON.stringify(packageData[key]));
-            } else if (key === 'max_staff_count' || key === 'max_leads_per_month' || key === 'trial_duration_days') {
+            } else if (key === 'max_staff_count' || key === 'max_leads_per_month' || key === 'trial_duration_days' || key === 'max_custom_fields') {
                  values.push(parseInt(packageData[key]));
             } else {
                  values.push(packageData[key]);
@@ -141,7 +140,6 @@ const updatePackage = async (id, packageData) => {
     });
 
     if (fields.length === 0) {
-      // If no valid fields are provided, just return the existing package
       return getPackageById(id);
     }
 

@@ -9,10 +9,29 @@ const sseService = require('../services/sseService');
 const createLead = async (req, res) => {
   try {
     const company_id = req.company.id;
-    const { first_name, last_name, email, phone, lead_source_id, assigned_to, tag, next_follow_up } = req.body;
 
-    if (!first_name || !last_name || (!email && !phone) || !lead_source_id) {
-      return errorResponse(res, 400, "First name, last name, email/phone, and lead source are required");
+    let fieldSeparation;
+    try {
+      fieldSeparation = await Lead.validateAndSeparateFields(company_id, req.body);
+    } catch (error) {
+      if (error.message.startsWith('CUSTOM_FIELDS_NOT_ALLOWED')) {
+        return errorResponse(res, 403, error.message.split('|')[1]);
+      }
+      if (error.message.startsWith('CUSTOM_FIELDS_LIMIT_EXCEEDED')) {
+        return errorResponse(res, 403, error.message.split('|')[1]);
+      }
+      throw error;
+    }
+
+    const { standardFields, customFields } = fieldSeparation;
+
+    if (!standardFields.first_name || !standardFields.last_name ||
+        (!standardFields.email && !standardFields.phone) ||
+        !standardFields.lead_source_id) {
+      return errorResponse(
+        res, 400,
+        "First name, last name, email/phone, and lead source are required"
+      );
     }
 
     let created_by, assigned_by, created_by_type, assigned_by_type;
@@ -20,14 +39,14 @@ const createLead = async (req, res) => {
     if (req.staff) {
       created_by = req.staff.id;
       created_by_type = 'staff';
-      if (assigned_to) {
+      if (standardFields.assigned_to) {
         assigned_by = req.staff.id;
         assigned_by_type = 'staff';
       }
     } else if (req.company) {
       created_by = req.company.id;
       created_by_type = 'company';
-      if (assigned_to) {
+      if (standardFields.assigned_to) {
         assigned_by = req.company.id;
         assigned_by_type = 'company';
       }
@@ -39,20 +58,28 @@ const createLead = async (req, res) => {
       created_by_type,
       assigned_by: assigned_by || null,
       assigned_by_type: assigned_by_type || null,
-      ...req.body
+      lead_data: customFields,
+      ...standardFields
     };
 
-    if (next_follow_up) {
-      leadData.next_follow_up = parseAndConvertToUTC(next_follow_up, req.timezone);
+    if (standardFields.next_follow_up) {
+      leadData.next_follow_up = parseAndConvertToUTC(
+        standardFields.next_follow_up,
+        req.timezone
+      );
     }
 
     const newLead = await Lead.createLead(leadData);
-    if (tag && typeof tag === 'string') {
+
+    if (standardFields.tag && typeof standardFields.tag === 'string') {
       let applied_by = null;
-      if (req.staff) {
-        applied_by = req.staff.id;
-      }
-      await Lead.applyTagsToLead(newLead.id, [tag.toLowerCase()], applied_by, company_id);
+      if (req.staff) applied_by = req.staff.id;
+      await Lead.applyTagsToLead(
+        newLead.id,
+        [standardFields.tag.toLowerCase()],
+        applied_by,
+        company_id
+      );
     }
 
     const createdLeadWithDetails = await Lead.getLeadByIdWithTags(newLead.id, company_id);
@@ -61,10 +88,10 @@ const createLead = async (req, res) => {
       await Lead.trackLeadCreation(newLead.id, created_by, company_id);
     }
 
-    if (assigned_to && assigned_by) {
+    if (standardFields.assigned_to && assigned_by) {
       await NotificationService.createLeadAssignmentNotification(
         newLead.id,
-        assigned_to,
+        standardFields.assigned_to,
         assigned_by,
         company_id
       );
@@ -78,9 +105,19 @@ const createLead = async (req, res) => {
       );
     }
 
-    sseService.publish(`c_${company_id}`, 'leads_list_refresh', { action: 'created', leadId: newLead.id });
+    sseService.publish(`c_${company_id}`, 'leads_list_refresh', {
+      action: 'created',
+      leadId: newLead.id
+    });
 
-    return successResponse(res, "Lead created successfully", createdLeadWithDetails, 201, req);
+    return successResponse(
+      res,
+      "Lead created successfully",
+      createdLeadWithDetails,
+      201,
+      req
+    );
+
   } catch (err) {
     return errorResponse(res, 500, "Failed to create lead. " + err.message);
   }

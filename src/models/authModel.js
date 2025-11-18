@@ -109,7 +109,7 @@ const getCompanyById = async (id) => {
           c.id, c.unique_company_id, c.company_name, c.admin_email, c.admin_name,
           c.phone, c.address, c.website, c.industry, c.company_size, c.password_hash,
           c.email_verified, c.is_active, c.subscription_package_id, c.subscription_start_date, c.subscription_end_date,
-          sp.name AS package_name, sp.max_staff_count, sp.max_leads_per_month, sp.features, sp.is_trial,
+          sp.name AS package_name, sp.max_staff_count, sp.max_leads_per_month, sp.features, sp.is_trial,sp.max_custom_fields,
           TO_CHAR(c.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
           TO_CHAR(c.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at
        FROM companies c
@@ -120,7 +120,6 @@ const getCompanyById = async (id) => {
 
     const company = rows.length ? rows[0] : null;
 
-    // Parse features field if it's a string (as returned by pg when JSON/JSONB is selected)
     if (company && company.features && typeof company.features === 'string') {
         try {
             company.features = JSON.parse(company.features);

@@ -580,7 +580,7 @@ const getLeadByIdWithTags = async (id, companyId) => {
             l.notes, l.internal_notes, l.priority_level, l.lead_score,
             l.assigned_at, l.assigned_by, l.created_by, l.last_contacted,
             l.next_follow_up, l.best_time_to_call, l.timezone, l.utm_source,
-            l.utm_medium, l.utm_campaign, l.referral_source, l.created_at, l.updated_at,
+            l.utm_medium, l.utm_campaign, l.referral_source, l.created_at, l.updated_at,l.lead_data,
             l.created_by_type, l.assigned_by_type,
             ls.source_name as lead_source,
             ls.source_type as lead_source_type,
@@ -611,7 +611,21 @@ const getLeadByIdWithTags = async (id, companyId) => {
      WHERE l.id = $1 AND l.company_id = $2`,
     [id, companyId]
   );
-  return result.rows[0];
+ const lead = result.rows[0];
+
+if (lead && lead.lead_data) {
+  if (typeof lead.lead_data === 'string') {
+    try {
+      lead.lead_data = JSON.parse(lead.lead_data);
+    } catch (e) {
+      lead.lead_data = {};
+    }
+  }
+} else if (lead) {
+  lead.lead_data = {};
+}
+
+return lead;
 };
 
 const getLeadStatuses = async (companyId) => {
@@ -1497,6 +1511,96 @@ const getLeadsTotalCount = async (companyId) => {
 };
 
 
+const getCustomFieldsQuota = async (companyId) => {
+  const result = await pool.query(
+    `SELECT COALESCE(sp.max_custom_fields, 0) as max_fields
+     FROM companies c
+     LEFT JOIN subscription_packages sp ON c.subscription_package_id = sp.id
+     WHERE c.id = $1`,
+    [companyId]
+  );
+
+  if (result.rows.length === 0) {
+    return { canAdd: false, limit: 0, current: 0 };
+  }
+
+  return {
+    canAdd: result.rows[0].max_fields > 0,
+    limit: result.rows[0].max_fields,
+    current: 0
+  };
+};
+
+const validateAndSeparateFields = async (companyId, requestBody) => {
+  const standardFields = {
+    first_name: true, last_name: true, email: true, phone: true,
+    company_name: true, job_title: true, industry: true,
+    lead_value: true, currency: true, notes: true, internal_notes: true,
+    priority_level: true, lead_score: true, best_time_to_call: true,
+    timezone: true, utm_source: true, utm_medium: true, utm_campaign: true,
+    referral_source: true, address: true, remarks: true,
+    lead_source_id: true, assigned_to: true, status_id: true, tag: true,
+    next_follow_up: true
+  };
+
+  const customFields = {};
+  const standardOnlyBody = {};
+
+  for (const [key, value] of Object.entries(requestBody)) {
+    if (standardFields[key]) {
+      standardOnlyBody[key] = value;
+    } else if (value !== undefined && value !== null && value !== '') {
+      customFields[key] = value;
+    }
+  }
+
+  const { canAdd, limit } = await getCustomFieldsQuota(companyId);
+
+  if (Object.keys(customFields).length > 0 && !canAdd) {
+    throw new Error(
+      'CUSTOM_FIELDS_NOT_ALLOWED|Custom fields not available in your subscription'
+    );
+  }
+
+  if (Object.keys(customFields).length > limit) {
+    throw new Error(
+      `CUSTOM_FIELDS_LIMIT_EXCEEDED|Max ${limit} custom fields. You provided ${Object.keys(customFields).length}`
+    );
+  }
+
+  return {
+    standardFields: standardOnlyBody,
+    customFields,
+    quota: { canAdd, limit, count: Object.keys(customFields).length }
+  };
+};
+
+const logCustomFieldChange = async (leadId, companyId, fieldKey, oldValue, newValue, changedBy) => {
+  try {
+    await pool.query(
+      `INSERT INTO lead_custom_field_audit
+       (lead_id, company_id, field_key, old_value, new_value, changed_by)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [leadId, companyId, fieldKey, oldValue, newValue, changedBy]
+    );
+  } catch (error) {
+    console.error('Audit log error:', error);
+  }
+};
+
+const getCustomFieldsForLead = async (leadId, companyId) => {
+  const result = await pool.query(
+    `SELECT lead_data FROM leads WHERE id = $1 AND company_id = $2`,
+    [leadId, companyId]
+  );
+
+  if (result.rows.length === 0) return null;
+
+  const leadData = result.rows[0].lead_data;
+  return typeof leadData === 'string' ? JSON.parse(leadData) : leadData;
+};
+
+
 module.exports = {
   createLead,
   bulkCreateLeadsWithCopy,
@@ -1548,6 +1652,10 @@ module.exports = {
   trackLeadActivity,
   getLeadHistoryWithTimeline,
   getLeadsCreatedThisMonth,
-  getLeadsTotalCount
+  getLeadsTotalCount,
+  getCustomFieldsQuota,
+  validateAndSeparateFields,
+  logCustomFieldChange,
+  getCustomFieldsForLead
 
 };

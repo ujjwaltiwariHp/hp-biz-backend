@@ -61,6 +61,7 @@ const getCompanyById = async (id) => {
         sp.max_leads_per_month,
         sp.features,
         sp.is_trial,
+        sp.max_custom_fields,
         (SELECT COUNT(*) FROM staff s WHERE s.company_id = c.id) as staff_count,
         (SELECT COUNT(*) FROM leads l WHERE l.company_id = c.id) as leads_count
       FROM companies c
@@ -359,7 +360,7 @@ const createCompanyBySuperAdmin = async (data) => {
 
     const values = [
         unique_company_id, company_name, admin_email, hashedPassword, admin_name,
-        otherData.phone || null, otherData.address || null, otherData.industry || null, otherData.company_size || null,
+        data.phone || null, data.address || null, data.industry || null, data.company_size || null,
         subscription_package_id, subscription_start_date, subscription_end_date, is_active
     ];
 
