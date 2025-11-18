@@ -156,6 +156,41 @@ const assignTrialSubscription = async (companyId, packageId, endDate) => {
   return rows[0];
 };
 
+const getCompanySubscriptionStatus = async (companyId) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+        c.id,
+        c.company_name,
+        c.admin_email,
+        c.subscription_status,
+        c.subscription_package_id,
+        c.is_active,
+        c.subscription_end_date,
+        sp.name as package_name,
+        i.invoice_number,
+        i.status as invoice_status,
+        i.total_amount,
+        i.currency,
+        TO_CHAR(c.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
+        TO_CHAR(c.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at
+      FROM companies c
+      LEFT JOIN subscription_packages sp ON c.subscription_package_id = sp.id
+      LEFT JOIN invoices i ON i.company_id = c.id
+        AND i.subscription_package_id = c.subscription_package_id
+      WHERE c.id = $1
+      ORDER BY i.created_at DESC
+      LIMIT 1`,
+      [companyId]
+    );
+
+    return rows[0] || null;
+  } catch (error) {
+    console.error('Error fetching company subscription status:', error);
+    throw error;
+  }
+};
+
 
 const updateCompanyPassword = async (admin_email, password) => {
   const hashedPassword = await bcrypt.hash(password, 12);
@@ -270,5 +305,6 @@ module.exports = {
   createResetOTP,
   getValidResetOTP,
   invalidateSession,
-  assignTrialSubscription
+  assignTrialSubscription,
+  getCompanySubscriptionStatus
 };

@@ -1600,6 +1600,71 @@ const getCustomFieldsForLead = async (leadId, companyId) => {
   return typeof leadData === 'string' ? JSON.parse(leadData) : leadData;
 };
 
+const createDefaultLeadSources = async (companyId) => {
+  const defaultSources = [
+    { source_name: 'Instagram', source_type: 'social' },
+    { source_name: 'Facebook', source_type: 'social' },
+    { source_name: 'LinkedIn', source_type: 'social' },
+    { source_name: 'Email Marketing', source_type: 'email' },
+  ];
+
+  const query = `
+    INSERT INTO lead_sources (company_id, source_name, source_type)
+    VALUES ($1, $2, $3)
+    ON CONFLICT (company_id, source_name) DO NOTHING
+    RETURNING id
+  `;
+
+  for (const source of defaultSources) {
+    await pool.query(query, [companyId, source.source_name, source.source_type]);
+  }
+};
+
+// NEW FUNCTION: Create Default Lead Statuses
+const createDefaultLeadStatuses = async (companyId) => {
+  const defaultStatuses = [
+    { status_name: 'New Lead', status_color: '#007bff', sort_order: 1, is_default: true, is_final: false, conversion_stage: 'initial' },
+    { status_name: 'Interested', status_color: '#ffc107', sort_order: 2, is_default: false, is_final: false, conversion_stage: 'engagement' },
+    { status_name: 'Not Interested', status_color: '#6c757d', sort_order: 3, is_default: false, is_final: true, conversion_stage: 'lost' },
+    { status_name: 'Converted', status_color: '#28a745', sort_order: 4, is_default: false, is_final: true, conversion_stage: 'converted' },
+  ];
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    await client.query(`
+      UPDATE lead_statuses SET is_default = false
+      WHERE company_id = $1 AND is_default = true
+    `, [companyId]);
+
+    const query = `
+      INSERT INTO lead_statuses (company_id, status_name, status_color, sort_order, is_default, is_final, conversion_stage)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (company_id, status_name) DO NOTHING
+      RETURNING id
+    `;
+
+    for (const status of defaultStatuses) {
+      await client.query(query, [
+        companyId,
+        status.status_name,
+        status.status_color,
+        status.sort_order,
+        status.is_default,
+        status.is_final,
+        status.conversion_stage
+      ]);
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
 
 module.exports = {
   createLead,
@@ -1656,6 +1721,8 @@ module.exports = {
   getCustomFieldsQuota,
   validateAndSeparateFields,
   logCustomFieldChange,
-  getCustomFieldsForLead
+  getCustomFieldsForLead,
+  createDefaultLeadSources,
+  createDefaultLeadStatuses,
 
 };

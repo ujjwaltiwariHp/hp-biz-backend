@@ -23,15 +23,25 @@ const authenticate = async (req, res, next) => {
     }
 
     if (!company.email_verified) {
-        return errorResponse(res, 403, "Account not verified.");
+      return errorResponse(res, 403, "Account not verified.");
     }
 
     const requiresPlanSelection = !company.subscription_package_id;
     const subscriptionEndDate = moment(company.subscription_end_date);
 
+    const isStatusCheckEndpoint = req.path === '/subscription-status' || req.path === '/api/v1/auth/subscription-status';
+
     if (requiresPlanSelection) {
-    } else if (!company.is_active || subscriptionEndDate.isBefore(moment())) {
+    } else if (!isStatusCheckEndpoint) {
+      const PENDING_STATUSES = ['pending', 'payment_received'];
+
+      if (PENDING_STATUSES.includes(company.subscription_status)) {
+        return errorResponse(res, 403, "Subscription pending approval. Please wait for admin verification.");
+      }
+
+      if (!company.is_active || subscriptionEndDate.isBefore(moment())) {
         return errorResponse(res, 403, "Subscription inactive or expired. Please renew your plan.");
+      }
     }
 
     req.company = company;
@@ -42,7 +52,6 @@ const authenticate = async (req, res, next) => {
     return errorResponse(res, 401, "Invalid or expired token");
   }
 };
-
 const authenticateStaff = async (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');

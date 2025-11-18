@@ -14,7 +14,8 @@ const {
   getTimezones,
   getCommonTimezones,
   getAvailablePackages,
-  selectInitialSubscription
+  selectInitialSubscription,
+  getSubscriptionStatus
 } = require('../controllers/authController');
 
 const {
@@ -63,6 +64,12 @@ router.post('/select-subscription',
     attachTimezone,
     getCompanySubscriptionAndUsage,
     selectInitialSubscription
+);
+
+router.get('/subscription-status',
+  authenticate,
+  attachTimezone,
+  getSubscriptionStatus
 );
 
 router.get('/profile', authenticateAny, attachTimezone, getProfile);

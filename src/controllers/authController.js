@@ -12,6 +12,7 @@ const {
   invalidateSession,
   updateCompanyVerification,
   getCompanyById,
+  getCompanySubscriptionStatus
 } = require('../models/authModel');
 
 const { staffLogin: staffLoginModel } = require('../models/staffModel');
@@ -45,6 +46,9 @@ const {
 } = require('../utils/timezoneHelper');
 const { createNotification } = require('../../src/models/super-admin-models/notificationModel');
 const moment = require('moment');
+
+const Role = require('../models/roleModel');
+const { createDefaultLeadSources, createDefaultLeadStatuses } = require('../models/leadsModel');
 
 
 
@@ -124,14 +128,6 @@ const setPassword = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    if (!email || !password) {
-      return errorResponse(res, 400, "Email and password are required");
-    }
-
-    if (password.length < 6) {
-      return errorResponse(res, 400, "Password must be at least 6 characters long");
-    }
-
     const company = await getCompanyByEmail(email);
     if (!company) {
       return errorResponse(res, 404, "Company not found");
@@ -139,6 +135,10 @@ const setPassword = async (req, res) => {
 
     await updateCompanyPassword(email, password);
     await updateCompanyVerification(email, true);
+
+    await Role.createDefaultRoles(company.id);
+    await createDefaultLeadSources(company.id);
+    await createDefaultLeadStatuses(company.id);
 
     return successResponse(res, "Password set successfully. You can now login.", {}, 200, req);
 
@@ -202,7 +202,11 @@ const selectInitialSubscription = async (req, res) => {
           message: `Free subscription selected and immediately activated: ${packageData.name}.`
       });
 
-      return successResponse(res, "Free subscription activated successfully.", { package_name: packageData.name }, 200, req);
+      return successResponse(res, "Free subscription activated successfully.", {
+  package_name: packageData.name,
+  redirect_to: 'dashboard',
+  subscription_status: 'approved'
+}, 200, req);
 
     } else {
 
@@ -262,10 +266,12 @@ const selectInitialSubscription = async (req, res) => {
           message: `Paid subscription request initiated. Invoice #${newInvoice.invoice_number} sent. Status: pending.`
       });
 
-      return successResponse(res, "Paid subscription requested. Invoice sent. Awaiting admin payment approval.", {
-          invoice_number: newInvoice.invoice_number,
-          amount: newInvoice.total_amount
-      }, 200, req);
+return successResponse(res, "Paid subscription requested. Invoice sent. Awaiting admin payment approval.", {
+  invoice_number: newInvoice.invoice_number,
+  amount: newInvoice.total_amount,
+  redirect_to: 'subscription-pending',
+  subscription_status: 'pending'
+}, 200, req);
     }
 
   } catch (error) {
@@ -695,6 +701,97 @@ const getCommonTimezonesController = async (req, res) => {
   }
 };
 
+const getSubscriptionStatus = async (req, res) => {
+  try {
+    if (req.userType !== 'admin') {
+      return errorResponse(res, 403, "Only company admin can check subscription status");
+    }
+
+    const companyId = req.company.id;
+    const statusData = await getCompanySubscriptionStatus(companyId);
+
+    if (!statusData) {
+      return errorResponse(res, 404, "Company not found");
+    }
+
+    // Determine the frontend state based on subscription_status
+    let frontendState = 'unknown';
+    let message = '';
+    let canAccessDashboard = false;
+
+    switch (statusData.subscription_status) {
+      case 'trial':
+        frontendState = 'active';
+        message = 'Your trial subscription is active';
+        canAccessDashboard = true;
+        break;
+
+      case 'pending':
+        frontendState = 'awaiting_payment';
+        message = 'Your subscription request has been submitted. Please complete payment and wait for admin verification.';
+        canAccessDashboard = false;
+        break;
+
+      case 'payment_received':
+        frontendState = 'payment_verified';
+        message = 'Payment received! Your subscription is being activated by our admin team.';
+        canAccessDashboard = false;
+        break;
+
+      case 'approved':
+        frontendState = 'active';
+        message = 'Your subscription is active';
+        canAccessDashboard = true;
+        break;
+
+      case 'rejected':
+        frontendState = 'rejected';
+        message = 'Your subscription request was rejected. Please contact support.';
+        canAccessDashboard = false;
+        break;
+
+      case 'expired':
+        frontendState = 'expired';
+        message = 'Your subscription has expired. Please renew to continue.';
+        canAccessDashboard = false;
+        break;
+
+      case 'cancelled':
+        frontendState = 'cancelled';
+        message = 'Your subscription has been cancelled.';
+        canAccessDashboard = false;
+        break;
+
+      default:
+        frontendState = 'unknown';
+        message = 'Subscription status unknown. Please contact support.';
+        canAccessDashboard = false;
+    }
+
+    const responseData = {
+      subscription_status: statusData.subscription_status,
+      frontend_state: frontendState,
+      message: message,
+      can_access_dashboard: canAccessDashboard,
+      is_active: statusData.is_active,
+      package_name: statusData.package_name,
+      invoice: statusData.invoice_number ? {
+        invoice_number: statusData.invoice_number,
+        status: statusData.invoice_status,
+        amount: statusData.total_amount,
+        currency: statusData.currency
+      } : null,
+      subscription_end_date: statusData.subscription_end_date
+    };
+
+    return successResponse(res, "Subscription status retrieved successfully", responseData, 200, req);
+
+  } catch (error) {
+    console.error('Get subscription status error:', error);
+    return errorResponse(res, 500, "Internal server error");
+  }
+};
+
 module.exports = {
   signup,
   verifyOTP,
@@ -709,5 +806,6 @@ module.exports = {
   getTimezones,
   getCommonTimezones: getCommonTimezonesController,
   getAvailablePackages,
-  selectInitialSubscription
+  selectInitialSubscription,
+  getSubscriptionStatus
 };

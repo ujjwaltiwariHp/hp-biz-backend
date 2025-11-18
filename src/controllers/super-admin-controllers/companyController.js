@@ -18,6 +18,7 @@ const { generateCompanyRegistrationNotification } = require('../../models/super-
 const { successResponse } = require('../../utils/successResponse');
 const { errorResponse } = require('../../utils/errorResponse');
 const sseService = require('../../services/sseService');
+const { createDefaultLeadSources, createDefaultLeadStatuses } = require('../../models/leadsModel');
 
 const getCompanies = async (req, res) => {
   try {
@@ -384,6 +385,10 @@ const createCompanyByAdmin = async (req, res) => {
         }
 
         await Role.createDefaultRoles(newCompany.id);
+
+        await createDefaultLeadSources(newCompany.id);
+        await createDefaultLeadStatuses(newCompany.id);
+
 
         if (send_welcome_email) {
             const otp = generateOTP();
