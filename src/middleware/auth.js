@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const { getCompanyById } = require('../models/authModel');
 const { getStaffById } = require('../models/staffModel');
 const { errorResponse } = require('../utils/errorResponse');
+const { getSuperAdminById } = require('../models/super-admin-models/authModel');
 const moment = require('moment');
 
 const authenticate = async (req, res, next) => {
@@ -91,15 +92,17 @@ const authenticateStaff = async (req, res, next) => {
 
 const authenticateAny = async (req, res, next) => {
   try {
-    // FINAL: Only check Authorization header for production security.
     let token = req.header('Authorization')?.replace('Bearer ', '');
+
+    if (!token && req.query.token) {
+      token = req.query.token;
+    }
 
     if (!token) {
       return errorResponse(res, 401, "Access token required");
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
 
     if (decoded.type === 'staff') {
       const staff = await getStaffById(decoded.id, decoded.company_id);
@@ -115,6 +118,7 @@ const authenticateAny = async (req, res, next) => {
       req.staff = staff;
       req.company = company;
       req.userType = 'staff';
+
     } else if (decoded.type === 'company') {
       const company = await getCompanyById(decoded.id);
 
@@ -124,13 +128,25 @@ const authenticateAny = async (req, res, next) => {
 
       req.company = company;
       req.userType = 'admin';
+
+    } else if (decoded.type === 'super_admin') {
+      // FIX 2: Add support for Super Admin
+      const superAdmin = await getSuperAdminById(decoded.id);
+
+      if (!superAdmin) {
+        return errorResponse(res, 401, "Super Admin not found");
+      }
+
+      req.superAdmin = superAdmin;
+      req.userType = 'super_admin'; // Or strictly just use req.superAdmin depending on your controller logic
+
     } else {
       return errorResponse(res, 401, "Invalid token type");
     }
 
     next();
   } catch (error) {
-    // Catch-all for database or other errors
+    console.error("Auth Middleware Error:", error.message);
     return errorResponse(res, 401, "Invalid or expired token");
   }
 };

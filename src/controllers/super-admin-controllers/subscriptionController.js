@@ -48,6 +48,7 @@ const getPackage = async (req, res) => {
       package: packageData
     });
   } catch (error) {
+    console.error("Subscription Fetch Error:", error);
     return errorResponse(res, 500, "Failed to retrieve subscription package");
   }
 };
