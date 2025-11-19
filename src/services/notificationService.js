@@ -1,5 +1,5 @@
 const Notifications = require("../models/notificationsModel");
-const { createNotification: createSuperAdminNotification } = require('../models/super-admin-models/notificationModel'); // NEW IMPORT for Super Admin table
+const { createNotification: createSuperAdminNotification } = require('../models/super-admin-models/notificationModel');
 const { sendNotificationEmail, sendAdminNotificationEmail, sendSubscriptionActivationEmail } = require("./emailService");
 const pool = require("../config/database");
 
@@ -513,8 +513,6 @@ const createSubscriptionActivationNotification = async (companyData, packageData
 
     const notificationMessage = `Subscription activated for ${company_name} on ${packageName} plan until ${formattedEndDate}. Approved by ${superAdminName}.`;
 
-    const { createNotification: createSuperAdminNotification } = require('../models/super-admin-models/notificationModel');
-
     await createSuperAdminNotification({
       company_id: companyId,
       super_admin_id: null,
@@ -535,6 +533,35 @@ const createSubscriptionActivationNotification = async (companyData, packageData
   }
 };
 
+const createPaymentReceivedNotification = async (companyData, invoiceData, verifiedBySuperAdminId) => {
+  try {
+    const { id: companyId, company_name } = companyData;
+    const { id: invoiceId, invoice_number, total_amount, currency } = invoiceData; // Added invoiceId extraction
+
+    const message = `Payment of ${currency} ${total_amount} received for ${company_name} (Invoice #${invoice_number}). Verified by SA:${verifiedBySuperAdminId}. Awaiting Final Approval.`;
+
+    await createSuperAdminNotification({
+      company_id: companyId,
+      super_admin_id: null,
+      title: "Payment Verified - Approval Needed",
+      message: message,
+      notification_type: "payment_received",
+      priority: "high",
+      metadata: {
+        action_required: "approve_subscription",
+        company_id: companyId,
+        invoice_id: invoiceId,
+        invoice_number: invoice_number,
+        amount: total_amount
+      }
+    });
+
+    console.log(`Notification created: Payment verified for ${company_name}`);
+
+  } catch (error) {
+    console.error('Error creating payment received notification:', error);
+  }
+};
 
 module.exports = {
   createLeadStatusChangeNotification,
@@ -544,5 +571,6 @@ module.exports = {
   createLeadActivityNotification,
   createLeadCreationNotification,
   createLeadUpdateNotification,
-  createSubscriptionActivationNotification
+  createSubscriptionActivationNotification,
+  createPaymentReceivedNotification
 };

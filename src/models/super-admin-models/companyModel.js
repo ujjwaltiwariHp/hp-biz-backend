@@ -51,14 +51,16 @@ const getAllCompanies = async (limit = 10, offset = 0, search = '', status = '')
   }
 };
 
+// src/models/super-admin-models/companyModel.js
+
 const getCompanyById = async (id) => {
   try {
     const query = `
       SELECT
         c.*,
         sp.name as package_name,
-        sp.price as package_price,
-        sp.duration_type,
+        sp.price_monthly as package_price,
+        sp.currency as package_currency,
         sp.max_staff_count,
         sp.max_leads_per_month,
         sp.features,
