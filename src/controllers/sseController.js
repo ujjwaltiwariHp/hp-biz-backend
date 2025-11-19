@@ -15,10 +15,11 @@ const subscribe = async (req, res) => {
       return errorResponse(res, 401, "Authentication required for SSE connection");
     }
 
+
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    res.setHeader('Access-Control-Allow-Origin', '*');
+
     res.flushHeaders();
 
     sseService.addClient(clientId, res);
@@ -31,7 +32,12 @@ const subscribe = async (req, res) => {
     res.on('error', cleanup);
     res.on('end', cleanup);
   } catch (error) {
-    res.status(500).json({ success: false, error: 'Failed to establish SSE connection' });
+    if (!res.headersSent) {
+        res.status(500).json({ success: false, error: 'Failed to establish SSE connection' });
+    } else {
+        console.error("SSE Connection Error:", error);
+        res.end();
+    }
   }
 };
 
