@@ -19,7 +19,7 @@ const { staffLogin: staffLoginModel } = require('../models/staffModel');
 const Staff = require("../models/staffModel");
 
 const { updateSubscriptionStatusManual } = require('../models/super-admin-models/companyModel');
-const { getPackageById } = require('../models/super-admin-models/subscriptionModel');
+const { getPackageById, getActivePackages } = require('../models/super-admin-models/subscriptionModel');
 const { createInvoice, getInvoiceById, updateInvoice } = require('../models/super-admin-models/invoiceModel');
 const { sendInvoiceEmail } = require('../services/emailService');
 const { calculateTaxAndTotal } = require('../utils/calculationHelper');
@@ -27,9 +27,8 @@ const { calculateEndDate } = require('../utils/subscriptionHelper');
 const { logSystemEvent } = require('../models/loggingModel');
 const { generateInvoicePdf } = require('../utils/pdfGenerator');
 
-const { getActivePackages} = require('../models/super-admin-models/subscriptionModel');
 const { getCurrentStaffCount } = require('../models/staffModel');
-const { getLeadsCreatedThisMonth, getLeadsTotalCount } = require('../models/leadsModel');
+const { getLeadsCreatedThisMonth, getLeadsTotalCount, createDefaultLeadSources, createDefaultLeadStatuses } = require('../models/leadsModel');
 
 const pool = require('../config/database');
 
@@ -46,9 +45,7 @@ const {
 } = require('../utils/timezoneHelper');
 const { createNotification } = require('../../src/models/super-admin-models/notificationModel');
 const moment = require('moment');
-
 const Role = require('../models/roleModel');
-const { createDefaultLeadSources, createDefaultLeadStatuses } = require('../models/leadsModel');
 
 
 
@@ -128,6 +125,14 @@ const setPassword = async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    if (!email || !password) {
+      return errorResponse(res, 400, "Email and password are required");
+    }
+
+    if (password.length < 6) {
+      return errorResponse(res, 400, "Password must be at least 6 characters long");
+    }
+
     const company = await getCompanyByEmail(email);
     if (!company) {
       return errorResponse(res, 404, "Company not found");
@@ -163,7 +168,6 @@ const getAvailablePackages = async (req, res) => {
   }
 };
 
-
 const selectInitialSubscription = async (req, res) => {
   const companyId = req.company.id;
   const { package_id, duration_type } = req.body;
@@ -182,7 +186,22 @@ const selectInitialSubscription = async (req, res) => {
       return errorResponse(res, 404, "Invalid or inactive subscription package selected.");
     }
 
-    const isFree = parseFloat(packageData.price) <= 0 || packageData.is_trial;
+    let baseAmount;
+    switch (duration_type) {
+      case 'monthly':
+        baseAmount = parseFloat(packageData.price_monthly);
+        break;
+      case 'quarterly':
+        baseAmount = parseFloat(packageData.price_quarterly);
+        break;
+      case 'yearly':
+        baseAmount = parseFloat(packageData.price_yearly);
+        break;
+      default:
+        return errorResponse(res, 400, "Invalid billing duration type selected.");
+    }
+
+    const isFree = packageData.is_trial || baseAmount <= 0;
 
     if (isFree) {
       const duration = packageData.trial_duration_days || 7;
@@ -203,14 +222,13 @@ const selectInitialSubscription = async (req, res) => {
       });
 
       return successResponse(res, "Free subscription activated successfully.", {
-  package_name: packageData.name,
-  redirect_to: 'dashboard',
-  subscription_status: 'approved'
-}, 200, req);
+        package_name: packageData.name,
+        redirect_to: 'dashboard',
+        subscription_status: 'approved'
+      }, 200, req);
 
     } else {
 
-      const baseAmount = parseFloat(packageData.price);
       const { tax_amount, total_amount } = await calculateTaxAndTotal(baseAmount);
 
       const startDate = moment().tz(timezone).startOf('day');
@@ -228,7 +246,7 @@ const selectInitialSubscription = async (req, res) => {
         amount: baseAmount,
         tax_amount,
         total_amount,
-        currency: 'USD',
+        currency: packageData.currency,
         billing_period_start: startDate.toISOString(),
         billing_period_end: endDate.toISOString(),
         due_date: dueDate.toISOString(),
@@ -714,7 +732,6 @@ const getSubscriptionStatus = async (req, res) => {
       return errorResponse(res, 404, "Company not found");
     }
 
-    // Determine the frontend state based on subscription_status
     let frontendState = 'unknown';
     let message = '';
     let canAccessDashboard = false;

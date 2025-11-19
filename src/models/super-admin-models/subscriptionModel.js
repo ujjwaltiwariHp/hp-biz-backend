@@ -15,7 +15,9 @@ const getAllPackages = async () => {
   try {
     const query = `
       SELECT
-        sp.*,
+        sp.id, sp.name, sp.features, sp.max_staff_count, sp.max_leads_per_month, sp.is_active, sp.is_trial, sp.trial_duration_days, sp.max_custom_fields,
+        sp.price_monthly, sp.price_quarterly, sp.price_yearly, sp.yearly_discount_percent, sp.currency,
+        sp.created_at, sp.updated_at,
         COUNT(c.id) as company_count
       FROM subscription_packages sp
       LEFT JOIN companies c ON sp.id = c.subscription_package_id
@@ -39,7 +41,9 @@ const getPackageById = async (id) => {
 
     const query = `
       SELECT
-        sp.*,
+        sp.id, sp.name, sp.features, sp.max_staff_count, sp.max_leads_per_month, sp.is_active, sp.is_trial, sp.trial_duration_days, sp.max_custom_fields,
+        sp.price_monthly, sp.price_quarterly, sp.price_yearly, sp.yearly_discount_percent, sp.currency,
+        sp.created_at, sp.updated_at,
         COUNT(c.id) as company_count
       FROM subscription_packages sp
       LEFT JOIN companies c ON sp.id = c.subscription_package_id
@@ -56,7 +60,7 @@ const getPackageById = async (id) => {
 const getTrialPackage = async () => {
   try {
     const query = `
-      SELECT id, name, max_staff_count, max_leads_per_month, features::text, trial_duration_days
+      SELECT id, name, max_staff_count, max_leads_per_month, features::text, trial_duration_days, max_custom_fields
       FROM subscription_packages
       WHERE is_trial = TRUE AND is_active = TRUE
       LIMIT 1
@@ -84,19 +88,22 @@ const countActiveCompaniesByPackage = async (packageId) => {
 
 const createPackage = async (packageData) => {
   try {
-    const { name, duration_type, price, features, max_staff_count, max_leads_per_month, is_trial, trial_duration_days, is_active, max_custom_fields } = packageData;
+    const { name, price_monthly, price_quarterly, price_yearly, yearly_discount_percent, currency, features, max_staff_count, max_leads_per_month, is_trial, trial_duration_days, is_active, max_custom_fields } = packageData;
 
     const query = `
       INSERT INTO subscription_packages (
-        name, duration_type, price, features, max_staff_count, max_leads_per_month, is_trial, trial_duration_days, is_active, max_custom_fields
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        name, price_monthly, price_quarterly, price_yearly, yearly_discount_percent, currency, features, max_staff_count, max_leads_per_month, is_trial, trial_duration_days, is_active, max_custom_fields
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *
     `;
 
     const result = await pool.query(query, [
       name,
-      duration_type,
-      parseFloat(price),
+      parseFloat(price_monthly),
+      parseFloat(price_quarterly),
+      parseFloat(price_yearly),
+      parseInt(yearly_discount_percent),
+      currency,
       JSON.stringify(features || []),
       parseInt(max_staff_count),
       parseInt(max_leads_per_month),
@@ -119,7 +126,7 @@ const updatePackage = async (id, packageData) => {
     let paramIndex = 2;
 
     const allowedFields = [
-        'name', 'duration_type', 'price', 'max_staff_count',
+        'name', 'price_monthly', 'price_quarterly', 'price_yearly', 'yearly_discount_percent', 'currency', 'max_staff_count',
         'max_leads_per_month', 'is_trial', 'trial_duration_days', 'is_active', 'features',
         'max_custom_fields'
     ];
@@ -130,7 +137,9 @@ const updatePackage = async (id, packageData) => {
 
             if (key === 'features') {
                  values.push(JSON.stringify(packageData[key]));
-            } else if (key === 'max_staff_count' || key === 'max_leads_per_month' || key === 'trial_duration_days' || key === 'max_custom_fields') {
+            } else if (key.startsWith('price_')) {
+                 values.push(parseFloat(packageData[key]));
+            } else if (key === 'max_staff_count' || key === 'max_leads_per_month' || key === 'trial_duration_days' || key === 'max_custom_fields' || key === 'yearly_discount_percent') {
                  values.push(parseInt(packageData[key]));
             } else {
                  values.push(packageData[key]);
@@ -205,10 +214,11 @@ const checkPackageExists = async (name, excludeId = null) => {
 const getActivePackages = async () => {
   try {
     const query = `
-      SELECT *
+      SELECT id, name, features, max_staff_count, max_leads_per_month, is_active, is_trial, trial_duration_days, max_custom_fields,
+        price_monthly, price_quarterly, price_yearly, yearly_discount_percent, currency
       FROM subscription_packages
       WHERE is_active = true
-      ORDER BY price ASC
+      ORDER BY price_monthly ASC
     `;
     const result = await pool.query(query);
     return result.rows.map(jsonParse);

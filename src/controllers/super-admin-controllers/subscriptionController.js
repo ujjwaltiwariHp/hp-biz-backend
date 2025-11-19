@@ -54,19 +54,35 @@ const getPackage = async (req, res) => {
 
 const createSubscriptionPackage = async (req, res) => {
   try {
-    const { name, duration_type, price, features, max_staff_count, max_leads_per_month, is_trial, trial_duration_days, max_custom_fields } = req.body;
+    const {
+      name,
+      price_monthly, price_quarterly, price_yearly, yearly_discount_percent,
+      features, max_staff_count, max_leads_per_month, is_trial, trial_duration_days, max_custom_fields,
+      currency = 'INR'
+    } = req.body;
 
     const packageExists = await checkPackageExists(name);
     if (packageExists) {
       return errorResponse(res, 400, "Package with this name already exists");
     }
 
-    if (parseFloat(price) < 0) {
-      return errorResponse(res, 400, "Price cannot be negative");
+    const prices = [price_monthly, price_quarterly, price_yearly];
+    for (const price of prices) {
+      if (parseFloat(price) < 0) {
+        return errorResponse(res, 400, "All price values must be non-negative");
+      }
+    }
+
+    if (parseInt(yearly_discount_percent) < 0 || parseInt(yearly_discount_percent) > 100) {
+      return errorResponse(res, 400, "Yearly discount must be between 0 and 100 percent");
     }
 
     if (parseInt(max_staff_count) < 0 || parseInt(max_leads_per_month) < 0) {
       return errorResponse(res, 400, "Staff count and leads count cannot be negative");
+    }
+
+    if (parseInt(max_custom_fields) < 0) {
+        return errorResponse(res, 400, "Max custom fields cannot be negative");
     }
 
     if (is_trial && (!trial_duration_days || parseInt(trial_duration_days) <= 0)) {
@@ -75,8 +91,7 @@ const createSubscriptionPackage = async (req, res) => {
 
     const packageData = await createPackage({
       name,
-      duration_type,
-      price,
+      price_monthly, price_quarterly, price_yearly, yearly_discount_percent, currency,
       features: features || [],
       max_staff_count,
       max_leads_per_month,
@@ -96,7 +111,12 @@ const createSubscriptionPackage = async (req, res) => {
 const updateSubscriptionPackage = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, duration_type, price, features, max_staff_count, max_leads_per_month, is_trial, trial_duration_days, is_active, max_custom_fields } = req.body;
+    const {
+      name,
+      price_monthly, price_quarterly, price_yearly, yearly_discount_percent,
+      features, max_staff_count, max_leads_per_month, is_trial, trial_duration_days, is_active, max_custom_fields,
+      currency
+    } = req.body;
 
     if (!id || isNaN(parseInt(id))) {
       return errorResponse(res, 400, "Invalid package ID provided");
@@ -112,11 +132,25 @@ const updateSubscriptionPackage = async (req, res) => {
       return errorResponse(res, 400, "Package with this name already exists");
     }
 
+    const prices = [price_monthly, price_quarterly, price_yearly];
+    for (const price of prices) {
+      if (price !== undefined && parseFloat(price) < 0) {
+        return errorResponse(res, 400, "All price values must be non-negative");
+      }
+    }
+
+    if (yearly_discount_percent !== undefined && (parseInt(yearly_discount_percent) < 0 || parseInt(yearly_discount_percent) > 100)) {
+      return errorResponse(res, 400, "Yearly discount must be between 0 and 100 percent");
+    }
+
+    if (max_custom_fields !== undefined && parseInt(max_custom_fields) < 0) {
+        return errorResponse(res, 400, "Max custom fields cannot be negative");
+    }
+
     const updateData = {
         name,
-        duration_type,
-        price,
-        features: features || [],
+        price_monthly, price_quarterly, price_yearly, yearly_discount_percent, currency,
+        features: features || existingPackage.features,
         max_staff_count,
         max_leads_per_month,
         is_trial: is_trial !== undefined ? is_trial : existingPackage.is_trial,
@@ -129,8 +163,8 @@ const updateSubscriptionPackage = async (req, res) => {
         return errorResponse(res, 400, "Trial duration days must be a positive integer when is_trial is true");
     }
 
-    if (parseFloat(updateData.price) < 0 || parseInt(updateData.max_staff_count) < 0 || parseInt(updateData.max_leads_per_month) < 0) {
-      return errorResponse(res, 400, "Price, staff count, and leads count cannot be negative");
+    if (parseInt(updateData.max_staff_count) < 0 || parseInt(updateData.max_leads_per_month) < 0) {
+      return errorResponse(res, 400, "Staff count and leads count cannot be negative");
     }
 
     const updatedPackage = await updatePackage(id, updateData);
@@ -174,7 +208,6 @@ const removePackage = async (req, res) => {
       deletedPackage: {
         id: deletedPackage.id,
         name: deletedPackage.name,
-        price: deletedPackage.price
       }
     });
   } catch (error) {
