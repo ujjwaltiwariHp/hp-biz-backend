@@ -14,7 +14,9 @@ const getAllCompanies = async (limit = 10, offset = 0, search = '', status = '')
         c.phone, c.address, c.website, c.industry, c.company_size,
         c.subscription_start_date, c.subscription_end_date, c.is_active, c.subscription_status,
         c.email_verified, c.created_at, c.updated_at,
-        sp.name as package_name, sp.price as package_price, sp.duration_type,
+        sp.name as package_name,
+        sp.price_monthly as package_price,
+        sp.currency as package_currency,
         COUNT(*) OVER() as total_count
       FROM companies c
       LEFT JOIN subscription_packages sp ON c.subscription_package_id = sp.id
