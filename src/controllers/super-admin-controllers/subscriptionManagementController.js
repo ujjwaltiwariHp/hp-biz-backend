@@ -32,13 +32,20 @@ const initiateSubscriptionRequest = async (req, res) => {
         return errorResponse(res, 400, 'Company already has an active subscription.');
     }
 
-    const baseAmount = parseFloat(packageData.price);
+    let baseAmount = 0;
+    if (duration_type === 'yearly') {
+      baseAmount = parseFloat(packageData.price_yearly);
+    } else if (duration_type === 'quarterly') {
+      baseAmount = parseFloat(packageData.price_quarterly);
+    } else {
+      baseAmount = parseFloat(packageData.price_monthly);
+    }
+
     const { tax_amount, total_amount, tax_rate_display } = await calculateTaxAndTotal(baseAmount);
 
     const startDate = moment().tz(timezone).startOf('day');
     const endDate = calculateEndDate(startDate, duration_type, 1, timezone);
     const dueDate = moment().tz(timezone).add(due_date_days, 'days').endOf('day');
-
 
     const newInvoice = await createInvoice({
       company_id: companyId,
@@ -46,12 +53,11 @@ const initiateSubscriptionRequest = async (req, res) => {
       amount: baseAmount,
       tax_amount,
       total_amount,
-      currency: 'USD',
+      currency: packageData.currency || 'USD',
       billing_period_start: startDate.toISOString(),
       billing_period_end: endDate.toISOString(),
       due_date: dueDate.toISOString()
     });
-
 
     const updatedCompany = await updateSubscriptionStatusManual(companyId, superAdminId, 'pending', {
         subscription_package_id,
@@ -74,6 +80,7 @@ const initiateSubscriptionRequest = async (req, res) => {
     }, 201, req);
 
   } catch (error) {
+    console.error("Initiate Sub Error:", error);
     return errorResponse(res, 500, 'Failed to initiate subscription request.');
   }
 };
@@ -124,6 +131,7 @@ const markPaymentReceived = async (req, res) => {
         }, 200, req);
 
     } catch (error) {
+        console.error("Mark Payment Received Error:", error);
         return errorResponse(res, 500, 'Failed to mark payment as received.');
     }
 };
@@ -149,22 +157,23 @@ const approveSubscription = async (req, res) => {
         }
 
         const packageId = invoice.subscription_package_id || company.subscription_package_id;
-
-        if (!packageId) {
-            return errorResponse(res, 400, 'Subscription package ID not found in invoice or company record.');
-        }
-
         const packageData = await getPackageById(packageId);
 
         if (!packageData) {
             return errorResponse(res, 400, 'Invalid subscription package assigned.');
         }
 
-        const startDate = start_date_override
-          ? moment(start_date_override).tz(req.timezone).startOf('day')
-          : moment().tz(req.timezone).startOf('day');
+        let startDate = moment(invoice.billing_period_start).tz(req.timezone);
+        let endDate = moment(invoice.billing_period_end).tz(req.timezone);
 
-        const endDate = calculateEndDate(startDate, packageData.duration_type, 1, req.timezone);
+        if (start_date_override) {
+            const originalStart = moment(invoice.billing_period_start);
+            const originalEnd = moment(invoice.billing_period_end);
+            const durationDays = originalEnd.diff(originalStart, 'days');
+
+            startDate = moment(start_date_override).tz(req.timezone).startOf('day');
+            endDate = moment(startDate).add(durationDays, 'days');
+        }
 
         const updatedCompany = await updateSubscriptionStatusManual(companyId, req.superAdmin.id, 'approve', {
             subscription_package_id: packageId,
@@ -172,11 +181,13 @@ const approveSubscription = async (req, res) => {
             subscription_end_date: endDate.toISOString()
         });
 
-        const { tax_rate_display } = await calculateTaxAndTotal(packageData.price);
+        const { tax_rate_display } = await calculateTaxAndTotal(invoice.amount);
 
         const updatedInvoice = await updateInvoice(invoice_id, {
             status: 'paid',
-            payment_date: new Date().toISOString()
+            payment_date: new Date().toISOString(),
+            billing_period_start: startDate.toISOString(),
+            billing_period_end: endDate.toISOString()
         });
 
         const pdfBuffer = await generateInvoicePdf({
@@ -200,9 +211,10 @@ const approveSubscription = async (req, res) => {
                 company_id: companyId,
                 log_level: 'SUCCESS',
                 log_category: 'SUBSCRIPTION',
-                message: `Subscription successfully APPROVED and activated by SA:${req.superAdmin.id}. End date: ${moment(endDate).format('YYYY-MM-DD')}.`
+                message: `Subscription successfully APPROVED and activated by SA:${req.superAdmin.id}. End date: ${endDate.format('YYYY-MM-DD')}.`
             });
         } catch (logError) {
+             console.error("Logging error:", logError);
         }
 
         sseService.broadcast('sa_subscription_status_update', { action: 'approved', companyId: companyId, newStatus: 'approved' });
@@ -215,9 +227,11 @@ const approveSubscription = async (req, res) => {
         }, 200, req);
 
     } catch (error) {
+        console.error("Approve Subscription Error:", error);
         return errorResponse(res, 500, 'Failed to approve subscription and activate company.');
     }
 };
+
 const rejectSubscription = async (req, res) => {
     const companyId = req.params.id;
     const { invoice_id, rejection_reason, rejection_note } = req.body;

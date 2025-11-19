@@ -129,11 +129,14 @@ const getAllInvoicesData = async (limit = 10, offset = 0, filters = {}) => {
 
 const getInvoiceById = async (id) => {
   try {
+    // UPDATED: Added price_monthly and currency, removed any reference to old 'price' column
     const query = `
       SELECT
         i.*,
         c.company_name, c.admin_email as billing_email, c.address as billing_address,
         sp.name as package_name,
+        sp.price_monthly as package_price,
+        sp.currency as package_currency,
         sp.features as features
       FROM invoices i
       JOIN companies c ON i.company_id = c.id
