@@ -25,64 +25,133 @@ const validatePackageCreation = [
     .withMessage('Package name is required')
     .isLength({ min: 2, max: 100 })
     .withMessage('Package name must be between 2 and 100 characters'),
-  body('duration_type')
+
+  body('price_monthly')
     .notEmpty()
-    .withMessage('Duration type is required')
-    .isIn(['monthly', 'yearly', 'weekly', 'quarterly'])
-    .withMessage('Duration type must be monthly, yearly, weekly, or quarterly'),
-  body('price')
-    .notEmpty()
-    .withMessage('Price is required')
+    .withMessage('Monthly price is required')
     .isFloat({ min: 0 })
-    .withMessage('Price must be a positive number'),
+    .withMessage('Monthly price must be a non-negative number'),
+
+  body('price_quarterly')
+    .notEmpty()
+    .withMessage('Quarterly price is required')
+    .isFloat({ min: 0 })
+    .withMessage('Quarterly price must be a non-negative number'),
+
+  body('price_yearly')
+    .notEmpty()
+    .withMessage('Yearly price is required')
+    .isFloat({ min: 0 })
+    .withMessage('Yearly price must be a non-negative number'),
+
+  body('yearly_discount_percent')
+    .notEmpty()
+    .withMessage('Yearly discount percent is required')
+    .isInt({ min: 0, max: 100 })
+    .withMessage('Yearly discount percent must be between 0 and 100'),
+
   body('features')
     .optional()
     .isArray()
     .withMessage('Features must be an array'),
+
   body('max_staff_count')
     .notEmpty()
     .withMessage('Maximum staff count is required')
     .isInt({ min: 0 })
     .withMessage('Maximum staff count must be a positive integer'),
+
   body('max_leads_per_month')
     .notEmpty()
     .withMessage('Maximum leads per month is required')
     .isInt({ min: 0 })
     .withMessage('Maximum leads per month must be a positive integer'),
+
+  body('max_custom_fields')
+    .notEmpty()
+    .withMessage('Maximum custom fields is required')
+    .isInt({ min: 0 })
+    .withMessage('Maximum custom fields must be a positive integer'),
+
+  body('is_trial')
+    .optional()
+    .isBoolean()
+    .withMessage('is_trial must be a boolean'),
+
+  body('trial_duration_days')
+    .if(body('is_trial').equals('true'))
+    .notEmpty()
+    .withMessage('Trial duration days is required for trial packages')
+    .isInt({ min: 1 })
+    .withMessage('Trial duration days must be at least 1'),
+
   handleValidationErrors
 ];
 
 const validatePackageUpdate = [
   param('id').isInt({ min: 1 }).withMessage('Valid package ID is required'),
+
   body('name')
+    .optional()
     .notEmpty()
     .withMessage('Package name is required')
     .isLength({ min: 2, max: 100 })
     .withMessage('Package name must be between 2 and 100 characters'),
-  body('duration_type')
-    .notEmpty()
-    .withMessage('Duration type is required')
-    .isIn(['monthly', 'yearly', 'weekly', 'quarterly'])
-    .withMessage('Duration type must be monthly, yearly, weekly, or quarterly'),
-  body('price')
-    .notEmpty()
-    .withMessage('Price is required')
+
+  // REMOVED duration_type validation
+
+  // NEW Explicit Price Validations (Optional for updates)
+  body('price_monthly')
+    .optional()
     .isFloat({ min: 0 })
-    .withMessage('Price must be a positive number'),
+    .withMessage('Monthly price must be a non-negative number'),
+
+  body('price_quarterly')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Quarterly price must be a non-negative number'),
+
+  body('price_yearly')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Yearly price must be a non-negative number'),
+
+  body('yearly_discount_percent')
+    .optional()
+    .isInt({ min: 0, max: 100 })
+    .withMessage('Yearly discount percent must be between 0 and 100'),
+
   body('features')
     .optional()
     .isArray()
     .withMessage('Features must be an array'),
+
   body('max_staff_count')
-    .notEmpty()
-    .withMessage('Maximum staff count is required')
+    .optional()
     .isInt({ min: 0 })
     .withMessage('Maximum staff count must be a positive integer'),
+
   body('max_leads_per_month')
-    .notEmpty()
-    .withMessage('Maximum leads per month is required')
+    .optional()
     .isInt({ min: 0 })
     .withMessage('Maximum leads per month must be a positive integer'),
+
+  body('max_custom_fields')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Maximum custom fields must be a positive integer'),
+
+  body('is_trial')
+    .optional()
+    .isBoolean()
+    .withMessage('is_trial must be a boolean'),
+
+  body('trial_duration_days')
+    .if(body('is_trial').equals('true'))
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Trial duration days must be at least 1'),
+
   handleValidationErrors
 ];
 
