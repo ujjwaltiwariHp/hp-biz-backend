@@ -34,6 +34,16 @@ const ensureDefaultTagsExist = async (companyId) => {
   return tagIds;
 };
 
+const getFieldDefinitions = async (companyId) => {
+  const result = await pool.query(
+    `SELECT field_key, field_label, is_required
+     FROM lead_field_definitions
+     WHERE company_id = $1 AND is_active = true`,
+    [companyId]
+  );
+  return result.rows;
+};
+
 const createLead = async (data) => {
   const {
     company_id,
@@ -1543,35 +1553,33 @@ const validateAndSeparateFields = async (companyId, requestBody) => {
     next_follow_up: true
   };
 
+  const definedFields = await getFieldDefinitions(companyId);
+
+  const allowedCustomKeys = new Set(definedFields.map(f => f.field_key));
+
   const customFields = {};
   const standardOnlyBody = {};
 
   for (const [key, value] of Object.entries(requestBody)) {
     if (standardFields[key]) {
       standardOnlyBody[key] = value;
-    } else if (value !== undefined && value !== null && value !== '') {
+    } else if (allowedCustomKeys.has(key)) {
       customFields[key] = value;
     }
   }
 
-  const { canAdd, limit } = await getCustomFieldsQuota(companyId);
-
-  if (Object.keys(customFields).length > 0 && !canAdd) {
-    throw new Error(
-      'CUSTOM_FIELDS_NOT_ALLOWED|Custom fields not available in your subscription'
-    );
-  }
-
-  if (Object.keys(customFields).length > limit) {
-    throw new Error(
-      `CUSTOM_FIELDS_LIMIT_EXCEEDED|Max ${limit} custom fields. You provided ${Object.keys(customFields).length}`
-    );
+  for (const field of definedFields) {
+    if (field.is_required) {
+      const value = customFields[field.field_key];
+      if (value === undefined || value === null || value === '') {
+        throw new Error(`Missing required field: ${field.field_label}`);
+      }
+    }
   }
 
   return {
     standardFields: standardOnlyBody,
-    customFields,
-    quota: { canAdd, limit, count: Object.keys(customFields).length }
+    customFields
   };
 };
 

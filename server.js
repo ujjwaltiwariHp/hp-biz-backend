@@ -13,6 +13,7 @@ const leadDistributionRoutes = require('./src/routes/leadDistributionRoutes');
 const performanceRoutes = require('./src/routes/performanceRoutes');
 const notificationRoutes = require('./src/routes/notificationsRoutes');
 const loggingRoutes = require('./src/routes/loggingRoutes');
+const leadFieldRoutes = require('./src/routes/leadFieldRoutes');
 const superAdminAuthRoutes = require('./src/routes/super-admin-routes/authRoutes');
 const superAdminCompanyRoutes = require('./src/routes/super-admin-routes/companyRoutes');
 const superAdminSubscriptionRoutes = require('./src/routes/super-admin-routes/subscriptionRoutes');
@@ -126,6 +127,7 @@ app.use('/api/v1/performance', attachTimezone, performanceRoutes);
 app.use('/api/v1/notifications', attachTimezone, notificationRoutes);
 app.use('/api/v1/logs', attachTimezone, loggingRoutes);
 app.use('/api/v1/sse', attachTimezone, sseRoutes);
+app.use('/api/v1/lead-fields', attachTimezone, leadFieldRoutes);
 
 app.use('/api/v1/super-admin/auth', attachTimezoneForSuperAdmin, superAdminAuthRoutes);
 app.use('/api/v1/super-admin/companies', attachTimezoneForSuperAdmin, superAdminCompanyRoutes);

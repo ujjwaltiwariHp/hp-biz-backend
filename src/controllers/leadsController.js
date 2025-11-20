@@ -10,17 +10,14 @@ const createLead = async (req, res) => {
   try {
     const company_id = req.company.id;
 
-    let fieldSeparation;
+   let fieldSeparation;
     try {
       fieldSeparation = await Lead.validateAndSeparateFields(company_id, req.body);
     } catch (error) {
-      if (error.message.startsWith('CUSTOM_FIELDS_NOT_ALLOWED')) {
-        return errorResponse(res, 403, error.message.split('|')[1]);
+      if (error.message.startsWith("Missing required field")) {
+          return errorResponse(res, 400, error.message);
       }
-      if (error.message.startsWith('CUSTOM_FIELDS_LIMIT_EXCEEDED')) {
-        return errorResponse(res, 403, error.message.split('|')[1]);
-      }
-      throw error;
+      return errorResponse(res, 400, error.message);
     }
 
     const { standardFields, customFields } = fieldSeparation;
