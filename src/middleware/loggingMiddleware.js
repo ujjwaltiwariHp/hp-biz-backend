@@ -55,7 +55,6 @@ const logActivity = (req, res, next) => {
       try {
         let staff_id = null;
         let company_id = null;
-        let super_admin_id = null;
 
         if (req.userType === 'staff' && req.staff) {
           staff_id = req.staff.id;
@@ -64,7 +63,6 @@ const logActivity = (req, res, next) => {
           company_id = req.company.id;
           staff_id = null;
         } else if (req.superAdmin) {
-            // FIX: Store SA ID in staff_id column when company_id is NULL for lookup
             staff_id = req.superAdmin.id;
             company_id = null;
         }
@@ -317,7 +315,8 @@ const logSystemActivity = (level, category, message) => {
         staff_id,
         log_level: level.toUpperCase(),
         log_category: category,
-        message: `${message} - ${req.method} ${req.originalUrl} - IP: ${ip_address}`
+        message: `${message} - ${req.method} ${req.originalUrl}`,
+        ip_address
       };
 
       await logSystemEvent(logData);
@@ -361,7 +360,8 @@ const logError = async (err, req, res, next) => {
       staff_id: user_id,
       log_level: 'ERROR',
       log_category: 'api',
-      message: `Error: ${err.message} | User: ${email} (${user_type}, ID: ${user_id}) | ${req.method} ${req.originalUrl} | IP: ${ip_address} | Stack: ${err.stack?.substring(0, 500)}`
+      message: `Error: ${err.message} | User: ${email} (${user_type}, ID: ${user_id}) | ${req.method} ${req.originalUrl} | Stack: ${err.stack?.substring(0, 500)}`,
+      ip_address
     };
 
     await logSystemEvent(logData);

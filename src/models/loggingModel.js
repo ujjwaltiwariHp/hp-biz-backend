@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const sseService = require('../services/sseService');
 
 const normalizeIPForDisplay = (ip) => {
   if (!ip) return 'N/A';
@@ -28,7 +29,7 @@ const logUserActivity = async (activityData) => {
         staff_id, company_id, action_type, resource_type,
         resource_id, action_details, ip_address, created_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7::inet, CURRENT_TIMESTAMP)
-      RETURNING id, TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as created_at
+      RETURNING id, staff_id, company_id, action_type, resource_type, resource_id, action_details, ip_address, TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at
     `;
 
     const values = [
@@ -42,7 +43,20 @@ const logUserActivity = async (activityData) => {
     ];
 
     const result = await pool.query(query, values);
-    return result.rows[0];
+    const logEntry = result.rows[0];
+
+    if (logEntry) {
+      const logPayload = {
+          ...logEntry,
+          ip_address: normalizeIPForDisplay(logEntry.ip_address)
+      };
+      if (company_id) {
+        sseService.publish(`c_${company_id}`, 'new_activity_log', logPayload);
+      }
+      sseService.broadcast('sa_new_activity_log', logPayload);
+    }
+
+    return logEntry;
   } catch (error) {
     return null;
   }
@@ -54,15 +68,16 @@ const logSystemEvent = async (logData) => {
     staff_id,
     log_level,
     log_category,
-    message
+    message,
+    ip_address
   } = logData;
 
   try {
     const query = `
       INSERT INTO system_logs (
-        company_id, staff_id, log_level, log_category, message, created_at
-      ) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-      RETURNING id, TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as created_at
+        company_id, staff_id, log_level, log_category, message, ip_address, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6::inet, CURRENT_TIMESTAMP)
+      RETURNING id, company_id, staff_id, log_level, log_category, message, ip_address, TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at
     `;
 
     const values = [
@@ -70,12 +85,27 @@ const logSystemEvent = async (logData) => {
       staff_id || null,
       log_level || 'INFO',
       log_category || 'general',
-      message
+      message,
+      ip_address || '0.0.0.0'
     ];
 
     const result = await pool.query(query, values);
-    return result.rows[0];
+    const logEntry = result.rows[0];
+
+    if (logEntry) {
+       const logPayload = {
+          ...logEntry,
+          ip_address: normalizeIPForDisplay(logEntry.ip_address)
+      };
+      if (company_id) {
+         sseService.publish(`c_${company_id}`, 'new_system_log', logPayload);
+      }
+      sseService.broadcast('sa_new_system_log', logPayload);
+    }
+
+    return logEntry;
   } catch (error) {
+    console.error('System logging error:', error);
     return null;
   }
 };
@@ -102,7 +132,7 @@ const getUserActivityLogs = async (filters = {}) => {
       ual.resource_id,
       ual.action_details,
       HOST(ual.ip_address) as ip_address,
-      TO_CHAR(ual.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as created_at,
+      TO_CHAR(ual.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
 
       CASE
         WHEN ual.company_id IS NULL THEN COALESCE(sa.name, 'Super Admin')
@@ -127,7 +157,7 @@ const getUserActivityLogs = async (filters = {}) => {
     FROM user_activity_logs ual
     LEFT JOIN staff s ON ual.staff_id = s.id AND ual.company_id IS NOT NULL
     LEFT JOIN companies c ON ual.company_id = c.id
-    LEFT JOIN super_admins sa ON ual.company_id IS NULL AND ual.staff_id = sa.id -- FIX: Correctly join Super Admins on staff_id when company_id is NULL
+    LEFT JOIN super_admins sa ON ual.company_id IS NULL AND ual.staff_id = sa.id
     WHERE 1=1
   `;
 
@@ -209,7 +239,8 @@ const getSystemLogs = async (filters = {}) => {
       sl.log_level,
       sl.log_category,
       sl.message,
-      TO_CHAR(sl.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as created_at,
+      HOST(sl.ip_address) as ip_address,
+      TO_CHAR(sl.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
       COALESCE(c.admin_name, 'System') as first_name,
       '' as last_name,
       COALESCE(c.admin_email, 'System') as email,
@@ -264,16 +295,10 @@ const getSystemLogs = async (filters = {}) => {
 
   try {
     const result = await pool.query(query, values);
-
-    const logsWithIP = result.rows.map(log => {
-      const ipMatch = log.message.match(/IP:\s*([^\s-]+)/);
-      const rawIp = ipMatch ? ipMatch[1] : null;
-      return {
+    return result.rows.map(log => ({
         ...log,
-        ip_address: normalizeIPForDisplay(rawIp)
-      };
-    });
-    return logsWithIP;
+        ip_address: normalizeIPForDisplay(log.ip_address)
+    }));
   } catch (error) {
     throw new Error('Error fetching system logs: ' + error.message);
   }
