@@ -56,19 +56,21 @@ const logActivity = (req, res, next) => {
         let staff_id = null;
         let company_id = null;
 
+
         if (req.userType === 'staff' && req.staff) {
           staff_id = req.staff.id;
-          company_id = req.staff.company_id || (req.company ? req.company.id : null);
+          company_id = req.staff.company_id;
         } else if (req.userType === 'admin' && req.company) {
           company_id = req.company.id;
           staff_id = null;
-        } else if (req.superAdmin) {
-            staff_id = req.superAdmin.id;
+        } else if (req.userType === 'super_admin' && req.superAdmin) {
+
+            staff_id = null;
             company_id = null;
         }
 
         if (!company_id && !staff_id) {
-          return;
+
         }
 
         const action_type = getActionType(req.method, req.originalUrl);
@@ -296,12 +298,9 @@ const logSystemActivity = (level, category, message) => {
       let staff_id = null;
       let company_id = null;
 
-      if (req.superAdmin) {
-        company_id = null;
-        staff_id = null;
-      } else if (req.userType === 'staff' && req.staff) {
+      if (req.userType === 'staff' && req.staff) {
         staff_id = req.staff.id;
-        company_id = req.staff.company_id || (req.company ? req.company.id : null);
+        company_id = req.staff.company_id;
       } else if (req.userType === 'admin' && req.company) {
         company_id = req.company.id;
         staff_id = null;
@@ -334,22 +333,26 @@ const logError = async (err, req, res, next) => {
     let user_type = 'System';
     let company_id = null;
     let email = 'N/A';
+    let staff_id_for_log = null;
 
     if (req.superAdmin) {
       user_id = req.superAdmin.id;
       user_type = 'Super Admin';
       company_id = null;
       email = req.superAdmin.email;
+      staff_id_for_log = null;
     } else if (req.staff) {
       user_id = req.staff.id;
       user_type = 'Staff';
       company_id = req.staff.company_id;
       email = req.staff.email;
+      staff_id_for_log = req.staff.id;
     } else if (req.company) {
       user_id = req.company.id;
       user_type = 'Company Admin';
       company_id = req.company.id;
       email = req.company.admin_email;
+      staff_id_for_log = null;
     }
 
     const rawIP = getClientIP(req);
@@ -357,7 +360,7 @@ const logError = async (err, req, res, next) => {
 
     const logData = {
       company_id,
-      staff_id: user_id,
+      staff_id: staff_id_for_log,
       log_level: 'ERROR',
       log_category: 'api',
       message: `Error: ${err.message} | User: ${email} (${user_type}, ID: ${user_id}) | ${req.method} ${req.originalUrl} | Stack: ${err.stack?.substring(0, 500)}`,

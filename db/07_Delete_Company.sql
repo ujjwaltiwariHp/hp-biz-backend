@@ -9,5 +9,5 @@ SET subscription_package_id = NULL;
 -- Step 3: Delete all subscription packages
 DELETE FROM subscription_packages;
 
--- Step 4: Reset ID sequence (optional)
+
 ALTER SEQUENCE subscription_packages_id_seq RESTART WITH 1;

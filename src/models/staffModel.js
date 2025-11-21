@@ -322,6 +322,27 @@ const hasPermission = (userPermissions, permissionKey) => {
   return userPermissions[permissionKey] === true;
 };
 
+const createStaffSession = async (staffId, refreshToken, ip, userAgent) => {
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  await pool.query(
+    `INSERT INTO staff_sessions (staff_id, refresh_token, ip_address, user_agent, expires_at)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [staffId, refreshToken, ip, userAgent, expiresAt]
+  );
+};
+
+const findStaffSession = async (refreshToken) => {
+  const { rows } = await pool.query(
+    'SELECT * FROM staff_sessions WHERE refresh_token = $1 AND expires_at > NOW()',
+    [refreshToken]
+  );
+  return rows[0];
+};
+
+const deleteStaffSession = async (refreshToken) => {
+  await pool.query('DELETE FROM staff_sessions WHERE refresh_token = $1', [refreshToken]);
+};
+
 module.exports = {
   getAllStaff,
   getStaffById,
@@ -338,5 +359,8 @@ module.exports = {
   getStaffStats,
   getCurrentStaffCount,
   getDesignationOptions,
-  getStatusOptions
+  getStatusOptions,
+  createStaffSession,
+  findStaffSession,
+  deleteStaffSession
 };

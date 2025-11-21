@@ -255,6 +255,23 @@ const getStatusOptions = async (req, res) => {
   }
 };
 
+const updateMyPassword = async (req, res) => {
+  try {
+    const { new_password } = req.body;
+    const staffId = req.staff.id;
+
+    if (!new_password || new_password.length < 6) {
+        return errorResponse(res, 400, "Password must be at least 6 characters long");
+    }
+
+    await Staff.updateStaffPassword(staffId, new_password);
+
+    return successResponse(res, "Password updated. Welcome aboard!");
+  } catch (error) {
+    return errorResponse(res, 500, error.message);
+  }
+};
+
 module.exports = {
   getAllStaff,
   getStaffById,
@@ -266,5 +283,6 @@ module.exports = {
   getCompanyRoles,
   getStaffStats,
   getDesignationOptions,
-  getStatusOptions
+  getStatusOptions,
+  updateMyPassword
 };

@@ -288,6 +288,56 @@ const invalidateSession = async (companyId) => {
   return true;
 };
 
+const upsertTempSignup = async ({ email, otp, expires_at }) => {
+  const query = `
+    INSERT INTO temp_signups (email, otp, otp_expires_at, attempt_count, last_attempt_at)
+    VALUES ($1, $2, $3, 1, CURRENT_TIMESTAMP)
+    ON CONFLICT (email) DO UPDATE SET
+      otp = $2,
+      otp_expires_at = $3,
+      is_verified = FALSE,
+      attempt_count = temp_signups.attempt_count + 1,
+      last_attempt_at = CURRENT_TIMESTAMP
+    RETURNING *;
+  `;
+  const { rows } = await pool.query(query, [email, otp, expires_at]);
+  return rows[0];
+};
+
+const getTempSignup = async (email) => {
+  const { rows } = await pool.query('SELECT * FROM temp_signups WHERE email = $1', [email]);
+  return rows[0];
+};
+
+const markTempSignupVerified = async (email) => {
+  await pool.query('UPDATE temp_signups SET is_verified = TRUE WHERE email = $1', [email]);
+};
+
+const deleteTempSignup = async (email) => {
+  await pool.query('DELETE FROM temp_signups WHERE email = $1', [email]);
+};
+
+const createCompanySession = async (companyId, refreshToken, ip, userAgent) => {
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  await pool.query(
+    `INSERT INTO company_sessions (company_id, refresh_token, ip_address, user_agent, expires_at)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [companyId, refreshToken, ip, userAgent, expiresAt]
+  );
+};
+
+const findCompanySession = async (refreshToken) => {
+  const { rows } = await pool.query(
+    'SELECT * FROM company_sessions WHERE refresh_token = $1 AND expires_at > NOW()',
+    [refreshToken]
+  );
+  return rows[0];
+};
+
+const deleteCompanySession = async (refreshToken) => {
+  await pool.query('DELETE FROM company_sessions WHERE refresh_token = $1', [refreshToken]);
+};
+
 module.exports = {
   createCompany,
   getCompanyByEmail,
@@ -304,5 +354,12 @@ module.exports = {
   getValidResetOTP,
   invalidateSession,
   assignTrialSubscription,
-  getCompanySubscriptionStatus
+  getCompanySubscriptionStatus,
+  upsertTempSignup,
+  getTempSignup,
+  markTempSignupVerified,
+  deleteTempSignup,
+  createCompanySession,
+  findCompanySession,
+  deleteCompanySession
 };

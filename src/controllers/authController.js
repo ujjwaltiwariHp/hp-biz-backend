@@ -4,18 +4,30 @@ const {
   updateCompanyProfile,
   updateCompanyPassword,
   verifyPassword,
-  createOTP,
-  getValidOTP,
-  markOTPAsUsed,
   createResetOTP,
   getValidResetOTP,
   invalidateSession,
   updateCompanyVerification,
   getCompanyById,
-  getCompanySubscriptionStatus
+  getCompanySubscriptionStatus,
+  upsertTempSignup,
+  getTempSignup,
+  markTempSignupVerified,
+  deleteTempSignup,
+  createCompanySession,
+  findCompanySession,
+  deleteCompanySession
 } = require('../models/authModel');
 
-const { staffLogin: staffLoginModel } = require('../models/staffModel');
+const {
+  staffLogin: staffLoginModel,
+  createStaffSession,
+  findStaffSession,
+  deleteStaffSession,
+  updateStaff: updateStaffModel,
+  updateStaffPassword: updateStaffPasswordModel
+} = require('../models/staffModel');
+
 const Staff = require("../models/staffModel");
 
 const { updateSubscriptionStatusManual } = require('../models/super-admin-models/companyModel');
@@ -34,7 +46,7 @@ const pool = require('../config/database');
 
 const { sendSignupOTPEmail, sendResetOTPEmail } = require('../services/emailService');
 const { generateOTP } = require('../utils/generateOTP');
-const { generateToken } = require('../utils/jwtHelper');
+const { generateAccessToken, generateRefreshToken, verifyToken } = require('../utils/jwtHelper');
 const { errorResponse } = require('../utils/errorResponse');
 const { successResponse } = require('../utils/responseFormatter');
 const {
@@ -47,8 +59,6 @@ const { createNotification } = require('../../src/models/super-admin-models/noti
 const moment = require('moment');
 const Role = require('../models/roleModel');
 
-
-
 const signup = async (req, res) => {
   try {
     const { email } = req.body;
@@ -60,25 +70,24 @@ const signup = async (req, res) => {
       return errorResponse(res, 400, "Please provide a valid email address");
     }
 
-    const existingCompany = await getCompanyByEmail(email);
+    const trimmedEmail = email.trim().toLowerCase();
+
+    const existingCompany = await getCompanyByEmail(trimmedEmail);
 
     if (existingCompany && existingCompany.email_verified) {
-      return errorResponse(res, 409, "This email has already been used");
+      return errorResponse(res, 409, "This email has already been used. Please login.");
     }
 
     const otp = generateOTP();
     const expiresAt = new Date(Date.now() + (process.env.OTP_EXPIRE_MINUTES || 10) * 60 * 1000);
 
     try {
-      await createOTP({ email, otp, otp_type: "signup", expires_at: expiresAt });
-      await sendSignupOTPEmail(email, otp);
-
-      if (!existingCompany) {
-        await createCompany({ admin_email: email });
-      }
+      await upsertTempSignup({ email: trimmedEmail, otp, expires_at: expiresAt });
+      await sendSignupOTPEmail(trimmedEmail, otp);
 
       return successResponse(res, "OTP sent to your email address", {}, 200, req);
     } catch (emailError) {
+      console.error("Signup Error:", emailError);
       return errorResponse(res, 500, "Failed to send OTP email");
     }
 
@@ -99,22 +108,25 @@ const verifyOTP = async (req, res) => {
       return errorResponse(res, 400, "OTP must be 4 digits");
     }
 
-    let otpRecord = await getValidOTP(email, otp);
-    if (!otpRecord) {
-      otpRecord = await getValidResetOTP(email, otp);
+    const trimmedEmail = email.trim().toLowerCase();
+
+    const tempSignup = await getTempSignup(trimmedEmail);
+
+    if (!tempSignup) {
+      return errorResponse(res, 400, "No signup request found. Please signup first.");
     }
 
-    if (!otpRecord) {
-      return errorResponse(res, 400, "Invalid or expired OTP");
+    if (tempSignup.otp !== otp) {
+      return errorResponse(res, 400, "Invalid OTP");
     }
 
-    await markOTPAsUsed(otpRecord.id);
-
-    if (otpRecord.otp_type === 'signup') {
-      await updateCompanyVerification(email, true);
+    if (new Date() > new Date(tempSignup.otp_expires_at)) {
+      return errorResponse(res, 400, "OTP Expired");
     }
 
-    return successResponse(res, "OTP verified successfully", {}, 200, req);
+    await markTempSignupVerified(trimmedEmail);
+
+    return successResponse(res, "OTP verified successfully. Please set your password.", {}, 200, req);
 
   } catch (error) {
     return errorResponse(res, 500, "Internal server error");
@@ -133,19 +145,236 @@ const setPassword = async (req, res) => {
       return errorResponse(res, 400, "Password must be at least 6 characters long");
     }
 
-    const company = await getCompanyByEmail(email);
-    if (!company) {
-      return errorResponse(res, 404, "Company not found");
+    const trimmedEmail = email.trim().toLowerCase();
+
+    const tempSignup = await getTempSignup(trimmedEmail);
+    if (!tempSignup || !tempSignup.is_verified) {
+      return errorResponse(res, 403, "Email not verified. Please verify OTP first.");
     }
 
-    await updateCompanyPassword(email, password);
-    await updateCompanyVerification(email, true);
+    let company = await getCompanyByEmail(trimmedEmail);
+    if (!company) {
+      company = await createCompany({ admin_email: trimmedEmail });
+    }
+
+    await updateCompanyPassword(trimmedEmail, password);
+    await updateCompanyVerification(trimmedEmail, true);
 
     await Role.createDefaultRoles(company.id);
     await createDefaultLeadSources(company.id);
     await createDefaultLeadStatuses(company.id);
 
-    return successResponse(res, "Password set successfully. You can now login.", {}, 200, req);
+    await deleteTempSignup(trimmedEmail);
+
+    return successResponse(res, "Account created successfully. You can now login.", {}, 200, req);
+
+  } catch (error) {
+    return errorResponse(res, 500, "Internal server error");
+  }
+};
+
+const login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const ip = req.ip;
+    const userAgent = req.get('User-Agent');
+
+    if (!email || !password) {
+      return errorResponse(res, 400, "Email and password are required");
+    }
+
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedPassword = password.trim();
+
+    let userType = null;
+    let userData = null;
+    let dbId = null;
+    let responsePayload = {};
+
+    const company = await getCompanyByEmail(trimmedEmail);
+    if (company && company.email_verified && company.password_hash) {
+      const isValidPassword = await verifyPassword(trimmedPassword, company.password_hash);
+      if (isValidPassword) {
+        const detailedCompany = await getCompanyById(company.id);
+        const subscriptionEndDate = moment(detailedCompany.subscription_end_date);
+        const requiresPlanSelection = !detailedCompany.subscription_package_id;
+
+        if (!requiresPlanSelection && (!detailedCompany.is_active || subscriptionEndDate.isBefore(moment()))) {
+          return errorResponse(res, 403, "Your company subscription is inactive or expired. Please renew your plan.");
+        }
+
+        userType = 'company';
+        dbId = detailedCompany.id;
+        userData = detailedCompany;
+
+        responsePayload = {
+          company: {
+            id: detailedCompany.id,
+            admin_email: detailedCompany.admin_email,
+            company_name: detailedCompany.company_name,
+            unique_company_id: detailedCompany.unique_company_id,
+            email_verified: detailedCompany.email_verified,
+            created_at: detailedCompany.created_at,
+            subscription_end_date: detailedCompany.subscription_end_date,
+            is_active: detailedCompany.is_active,
+            requires_plan_selection: requiresPlanSelection
+          }
+        };
+      }
+    }
+
+    // 2. Try Staff Login (if not company)
+    if (!userType) {
+      try {
+        const staff = await staffLoginModel(trimmedEmail, trimmedPassword);
+        if (staff) {
+          await updateStaffModel(staff.id, { last_login: new Date() }, staff.company_id);
+          userType = 'staff';
+          dbId = staff.id;
+          userData = staff;
+
+          responsePayload = {
+            staff: {
+              id: staff.id,
+              company_id: staff.company_id,
+              company_name: staff.company_name,
+              unique_company_id: staff.unique_company_id,
+              email: staff.email,
+              first_name: staff.first_name,
+              last_name: staff.last_name,
+              role_name: staff.role_name,
+              role_id: staff.role_id,
+              permissions: staff.permissions,
+              is_first_login: staff.is_first_login,
+              designation: staff.designation,
+              last_login: staff.last_login
+            },
+            require_password_change: staff.is_first_login
+          };
+        }
+      } catch (staffError) {
+
+      }
+    }
+
+    if (!userData) {
+      return errorResponse(res, 401, "Invalid credentials or account not verified/active");
+    }
+
+
+    const tokenPayload = {
+      id: dbId,
+      type: userType,
+      ...(userType === 'company' ? { admin_email: userData.admin_email } : { company_id: userData.company_id, role: userData.role_name })
+    };
+
+    const accessToken = generateAccessToken(tokenPayload);
+    const refreshToken = generateRefreshToken({ ...tokenPayload, version: 1 });
+
+
+    if (userType === 'company') {
+      await createCompanySession(dbId, refreshToken, ip, userAgent);
+    } else {
+      await createStaffSession(dbId, refreshToken, ip, userAgent);
+    }
+
+    // 5. Set Cookie
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+    });
+
+    return successResponse(res, "Login successful", {
+      token: accessToken,
+      userType,
+      ...responsePayload
+    }, 200, req);
+
+  } catch (error) {
+    console.error('Login error:', error);
+    return errorResponse(res, 500, "Internal server error");
+  }
+};
+
+const refreshToken = async (req, res) => {
+  try {
+    const token = req.cookies.refreshToken;
+    if (!token) return errorResponse(res, 401, "No refresh token provided");
+
+    const decoded = verifyToken(token);
+    if (!decoded) return errorResponse(res, 403, "Invalid token");
+
+    let session;
+    if (decoded.type === 'company') {
+      session = await findCompanySession(token);
+    } else {
+      session = await findStaffSession(token);
+    }
+
+    if (!session) {
+      res.clearCookie('refreshToken');
+      return errorResponse(res, 403, "Session expired or invalid");
+    }
+
+    const payload = {
+      id: decoded.id,
+      type: decoded.type,
+      ...(decoded.type === 'company' ? { admin_email: decoded.admin_email } : { company_id: decoded.company_id, role: decoded.role })
+    };
+
+    const newAccessToken = generateAccessToken(payload);
+
+    return successResponse(res, "Token refreshed", { token: newAccessToken }, 200, req);
+
+  } catch (error) {
+    return errorResponse(res, 500, error.message);
+  }
+};
+
+
+const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) return errorResponse(res, 400, "Email is required");
+
+    const company = await getCompanyByEmail(email);
+    if (!company) {
+      return errorResponse(res, 404, "Company not found");
+    }
+
+    const otp = generateOTP();
+    const expiresAt = new Date(Date.now() + (process.env.OTP_EXPIRE_MINUTES || 10) * 60 * 1000);
+
+    await createResetOTP({ email, otp, expires_at: expiresAt });
+    await sendResetOTPEmail(email, otp);
+
+    return successResponse(res, "Password reset OTP sent to email", {}, 200, req);
+
+  } catch (error) {
+    return errorResponse(res, 500, "Internal server error");
+  }
+};
+
+const resetPassword = async (req, res) => {
+  try {
+    const { email, password, otp } = req.body;
+
+    if (!otp) return errorResponse(res, 400, "OTP is required");
+
+    const company = await getCompanyByEmail(email);
+    if (!company) {
+      return errorResponse(res, 404, "Company not found");
+    }
+
+    const otpRecord = await getValidResetOTP(email, otp);
+    if (!otpRecord) return errorResponse(res, 400, "Invalid or expired OTP");
+
+    await updateCompanyPassword(email, password);
+
+    return successResponse(res, "Password reset successfully", {}, 200, req);
 
   } catch (error) {
     return errorResponse(res, 500, "Internal server error");
@@ -297,140 +526,6 @@ return successResponse(res, "Paid subscription requested. Invoice sent. Awaiting
     return errorResponse(res, 500, 'Failed to process subscription selection.');
   }
 };
-
-
-const login = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-      return errorResponse(res, 400, "Email and password are required");
-    }
-
-    const trimmedEmail = email.trim().toLowerCase();
-    const trimmedPassword = password.trim();
-
-    const company = await getCompanyByEmail(trimmedEmail);
-    if (company && company.email_verified && company.password_hash) {
-      const isValidPassword = await verifyPassword(trimmedPassword, company.password_hash);
-      if (isValidPassword) {
-        const detailedCompany = await getCompanyById(company.id);
-        const subscriptionEndDate = moment(detailedCompany.subscription_end_date);
-
-        const requiresPlanSelection = !detailedCompany.subscription_package_id;
-
-        if (!requiresPlanSelection && (!detailedCompany.is_active || subscriptionEndDate.isBefore(moment()))) {
-          return errorResponse(res, 403, "Your company subscription is inactive or expired. Please renew your plan.");
-        }
-
-        const token = generateToken({
-          id: detailedCompany.id,
-          admin_email: detailedCompany.admin_email,
-          type: 'company'
-        });
-
-        const responseData = {
-          token,
-          company: {
-            id: detailedCompany.id,
-            admin_email: detailedCompany.admin_email,
-            company_name: detailedCompany.company_name,
-            unique_company_id: detailedCompany.unique_company_id,
-            email_verified: detailedCompany.email_verified,
-            created_at: detailedCompany.created_at,
-            subscription_end_date: detailedCompany.subscription_end_date,
-            is_active: detailedCompany.is_active,
-            requires_plan_selection: requiresPlanSelection
-          }
-        };
-
-        return successResponse(res, "Login successful", responseData, 200, req);
-      }
-    }
-    try {
-      const staff = await staffLoginModel(trimmedEmail, trimmedPassword);
-      if (staff) {
-        await Staff.updateStaff(staff.id, { last_login: new Date() }, staff.company_id);
-
-        const token = generateToken({
-          id: staff.id,
-          company_id: staff.company_id,
-          role: staff.role_name,
-          type: 'staff'
-        });
-
-        const responseData = {
-          token,
-          staff: {
-            id: staff.id,
-            company_id: staff.company_id,
-            company_name: staff.company_name,
-            unique_company_id: staff.unique_company_id,
-            email: staff.email,
-            first_name: staff.first_name,
-            last_name: staff.last_name,
-            role_name: staff.role_name,
-            role_id: staff.role_id,
-            permissions: staff.permissions,
-            is_first_login: staff.is_first_login,
-            designation: staff.designation,
-            last_login: staff.last_login
-          }
-        };
-        return successResponse(res, "Login successful", responseData, 200, req);
-      }
-    } catch (staffError) {
-    }
-
-    return errorResponse(res, 401, "Invalid credentials or account not verified/active");
-
-  } catch (error) {
-    return errorResponse(res, 500, "Internal server error");
-  }
-};
-
-const forgotPassword = async (req, res) => {
-  try {
-    const { email } = req.body;
-
-    if (!email) return errorResponse(res, 400, "Email is required");
-
-    const company = await getCompanyByEmail(email);
-    if (!company) {
-      return errorResponse(res, 404, "Company not found");
-    }
-
-    const otp = generateOTP();
-    const expiresAt = new Date(Date.now() + (process.env.OTP_EXPIRE_MINUTES || 10) * 60 * 1000);
-
-    await createResetOTP({ email, otp, expires_at: expiresAt });
-    await sendResetOTPEmail(email, otp);
-
-    return successResponse(res, "Password reset OTP sent to email", {}, 200, req);
-
-  } catch (error) {
-    return errorResponse(res, 500, "Internal server error");
-  }
-};
-
-const resetPassword = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    const company = await getCompanyByEmail(email);
-    if (!company) {
-      return errorResponse(res, 404, "Company not found");
-    }
-
-    await updateCompanyPassword(email, password);
-
-    return successResponse(res, "Password reset successfully", {}, 200, req);
-
-  } catch (error) {
-    return errorResponse(res, 500, "Internal server error");
-  }
-};
-
 
 const updateProfile = async (req, res) => {
   try {
@@ -671,7 +766,7 @@ const changePassword = async (req, res) => {
         }
       }
 
-      const updatedStaff = await Staff.updateStaffPassword(staffId, new_password);
+      const updatedStaff = await updateStaffPasswordModel(staffId, new_password);
 
       return successResponse(res, "Password updated successfully", {
         is_first_login: updatedStaff.is_first_login
@@ -684,14 +779,26 @@ const changePassword = async (req, res) => {
 
 const logout = async (req, res) => {
   try {
-    if (req.userType === 'admin') {
-      const company = req.company;
-      await invalidateSession(company.id);
+    const token = req.cookies ? req.cookies.refreshToken : null;
+
+    if (token) {
+      await Promise.allSettled([
+        deleteCompanySession(token),
+        deleteStaffSession(token)
+      ]);
     }
+
+    res.clearCookie('refreshToken', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      path: '/'
+    });
 
     return successResponse(res, "Logged out successfully", {}, 200, req);
   } catch (error) {
-    return errorResponse(res, 500, "Internal server error");
+    console.error('Logout Logic Error:', error);
+    return errorResponse(res, 500, "Internal server error during logout");
   }
 };
 
@@ -814,12 +921,13 @@ module.exports = {
   verifyOTP,
   setPassword,
   login,
+  refreshToken,
+  logout,
   getProfile,
   updateProfile,
   changePassword,
   forgotPassword,
   resetPassword,
-  logout,
   getTimezones,
   getCommonTimezones: getCommonTimezonesController,
   getAvailablePackages,
