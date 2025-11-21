@@ -223,7 +223,6 @@ const login = async (req, res) => {
       }
     }
 
-    // 2. Try Staff Login (if not company)
     if (!userType) {
       try {
         const staff = await staffLoginModel(trimmedEmail, trimmedPassword);
@@ -278,12 +277,11 @@ const login = async (req, res) => {
       await createStaffSession(dbId, refreshToken, ip, userAgent);
     }
 
-    // 5. Set Cookie
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+      maxAge: 30 * 24 * 60 * 60 * 1000
     });
 
     return successResponse(res, "Login successful", {
@@ -348,7 +346,7 @@ const forgotPassword = async (req, res) => {
     const otp = generateOTP();
     const expiresAt = new Date(Date.now() + (process.env.OTP_EXPIRE_MINUTES || 10) * 60 * 1000);
 
-    await createResetOTP({ email, otp, expires_at: expiresAt });
+    await upsertTempSignup({ email: email.toLowerCase(), otp, expires_at: expiresAt });
     await sendResetOTPEmail(email, otp);
 
     return successResponse(res, "Password reset OTP sent to email", {}, 200, req);
@@ -360,19 +358,26 @@ const forgotPassword = async (req, res) => {
 
 const resetPassword = async (req, res) => {
   try {
-    const { email, password, otp } = req.body;
+    const { email, password } = req.body;
 
-    if (!otp) return errorResponse(res, 400, "OTP is required");
+    if (!email || !password) {
+      return errorResponse(res, 400, "Email and password are required");
+    }
 
     const company = await getCompanyByEmail(email);
     if (!company) {
       return errorResponse(res, 404, "Company not found");
     }
 
-    const otpRecord = await getValidResetOTP(email, otp);
-    if (!otpRecord) return errorResponse(res, 400, "Invalid or expired OTP");
+    const tempSignup = await getTempSignup(email.toLowerCase());
+
+    if (!tempSignup || !tempSignup.is_verified) {
+      return errorResponse(res, 403, "Email not verified. Please verify OTP first.");
+    }
 
     await updateCompanyPassword(email, password);
+
+    await deleteTempSignup(email);
 
     return successResponse(res, "Password reset successfully", {}, 200, req);
 
@@ -513,12 +518,12 @@ const selectInitialSubscription = async (req, res) => {
           message: `Paid subscription request initiated. Invoice #${newInvoice.invoice_number} sent. Status: pending.`
       });
 
-return successResponse(res, "Paid subscription requested. Invoice sent. Awaiting admin payment approval.", {
-  invoice_number: newInvoice.invoice_number,
-  amount: newInvoice.total_amount,
-  redirect_to: 'subscription-pending',
-  subscription_status: 'pending'
-}, 200, req);
+      return successResponse(res, "Paid subscription requested. Invoice sent. Awaiting admin payment approval.", {
+        invoice_number: newInvoice.invoice_number,
+        amount: newInvoice.total_amount,
+        redirect_to: 'subscription-pending',
+        subscription_status: 'pending'
+      }, 200, req);
     }
 
   } catch (error) {
@@ -573,7 +578,7 @@ const updateProfile = async (req, res) => {
 
      if (website !== undefined) {
      profileData.website = website;
-}
+    }
 
 
     if (industry !== undefined) {
