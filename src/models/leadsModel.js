@@ -179,7 +179,8 @@ const updateLead = async (id, data, companyId) => {
     "lead_value", "currency", "notes", "internal_notes", "priority_level",
     "lead_score", "best_time_to_call", "timezone", "utm_source", "utm_medium",
     "utm_campaign", "referral_source", "next_follow_up", "lead_source_id",
-    "assigned_by", "assigned_by_type"
+    "assigned_by", "assigned_by_type",
+    "lead_data" // ✅ ADDED THIS
   ];
 
   const updateFields = [];
@@ -188,6 +189,8 @@ const updateLead = async (id, data, companyId) => {
 
   Object.keys(data).forEach((key) => {
     if (allowedFields.includes(key) && data[key] !== undefined) {
+
+      // Handle assignments logic
       if (key === 'assigned_to' && data[key]) {
         updateFields.push(`${key} = $${paramCount}`);
         values.push(data[key]);
@@ -207,7 +210,15 @@ const updateLead = async (id, data, companyId) => {
           paramCount++;
         }
 
-      } else if (key !== 'assigned_by' && key !== 'assigned_by_type') {
+      }
+      // ✅ Handle Custom Fields (Stringify JSON)
+      else if (key === 'lead_data') {
+        updateFields.push(`${key} = $${paramCount}`);
+        values.push(JSON.stringify(data[key]));
+        paramCount++;
+      }
+      // Handle Standard Fields
+      else if (key !== 'assigned_by' && key !== 'assigned_by_type') {
         updateFields.push(`${key} = $${paramCount}`);
         values.push(data[key]);
         paramCount++;
@@ -334,6 +345,7 @@ const getLeads = async (companyId) => {
 
   const result = await pool.query(
     `SELECT l.id, l.first_name, l.last_name, l.email, l.phone, l.created_at,
+            l.lead_data,
             ls.source_name as lead_source,
             lt.status_name as lead_status,
             s.first_name as assigned_staff_first_name,
@@ -462,6 +474,7 @@ const searchLeads = async (companyId, filters) => {
 
   let query = `
     SELECT l.id, l.first_name, l.last_name, l.email, l.phone, l.created_at,
+           l.lead_data,
            ls.source_name as lead_source,
            lt.status_name as lead_status,
            s.first_name as assigned_staff_first_name,
@@ -563,6 +576,7 @@ const getLeadsWithTags = async (companyId) => {
 
   const result = await pool.query(
     `SELECT l.id, l.first_name, l.last_name, l.email, l.phone, l.created_at,
+            l.lead_data,
             ls.source_name as lead_source,
             lt.status_name as lead_status,
             s.first_name as assigned_staff_first_name,

@@ -123,18 +123,49 @@ const createLead = async (req, res) => {
 const updateLead = async (req, res) => {
   try {
     const companyId = req.company.id;
-    const updateData = { ...req.body };
-    const { tag, next_follow_up } = req.body;
+    const leadId = req.params.id;
 
-    const currentLead = await Lead.getLeadById(req.params.id, companyId);
+    // 1. Validate and Separate Fields (Just like Create)
+    let fieldSeparation;
+    try {
+      fieldSeparation = await Lead.validateAndSeparateFields(companyId, req.body);
+    } catch (error) {
+      return errorResponse(res, 400, error.message);
+    }
+
+    const { standardFields, customFields } = fieldSeparation;
+
+    // 2. Fetch Current Lead (To preserve existing custom fields)
+    const currentLead = await Lead.getLeadById(leadId, companyId);
     if (!currentLead) return errorResponse(res, 404, "Lead not found or unauthorized");
 
-    let userType = null;
-    let userId = null;
+    // 3. Merge Old and New Custom Data
+    let existingLeadData = currentLead.lead_data || {};
+    // Ensure it's an object if it came back as a string
+    if (typeof existingLeadData === 'string') {
+        try { existingLeadData = JSON.parse(existingLeadData); } catch(e) {}
+    }
 
+    const mergedCustomFields = {
+        ...existingLeadData,
+        ...customFields
+    };
+
+    // 4. Prepare Final Update Object
+    const updateData = {
+        ...standardFields,
+        lead_data: mergedCustomFields
+    };
+
+    // Handle Special Fields (Date Parsing)
+    const { next_follow_up } = req.body;
     if (next_follow_up) {
       updateData.next_follow_up = parseAndConvertToUTC(next_follow_up, req.timezone);
     }
+
+    // Handle Assignment Logic
+    let userType = null;
+    let userId = null;
 
     if (req.body.assigned_to) {
       if (req.staff) {
@@ -151,46 +182,46 @@ const updateLead = async (req, res) => {
 
       if (currentLead.assigned_to !== req.body.assigned_to) {
         await NotificationService.createLeadAssignmentNotification(
-          req.params.id,
+          leadId,
           req.body.assigned_to,
           updateData.assigned_by,
           companyId
         );
 
         if (userId && userType === 'staff') {
-          await Lead.trackLeadAssignment(req.params.id, req.body.assigned_to, userId, companyId);
+          await Lead.trackLeadAssignment(leadId, req.body.assigned_to, userId, companyId);
         }
       }
     }
 
-    const updatedLead = await Lead.updateLead(req.params.id, updateData, companyId);
+    // 5. Perform Update
+    const updatedLead = await Lead.updateLead(leadId, updateData, companyId);
 
-    if (tag && typeof tag === 'string') {
-      let applied_by = null;
-      if (req.staff) {
-        applied_by = req.staff.id;
-      }
-      await Lead.updateLeadTags(req.params.id, [tag.toLowerCase()], applied_by, companyId);
+    // Handle Tags
+    if (req.body.tag && typeof req.body.tag === 'string') {
+      let applied_by = req.staff ? req.staff.id : null;
+      await Lead.updateLeadTags(leadId, [req.body.tag.toLowerCase()], applied_by, companyId);
     }
 
+    // Notifications & SSE
     const leadWithDetails = await Lead.getLeadByIdWithTags(updatedLead.id, companyId);
+
     if (userType === 'staff' && userId) {
       await NotificationService.createLeadUpdateNotification(
-        req.params.id,
+        leadId,
         userId,
         companyId,
         'Lead information updated'
       );
     }
 
-    sseService.publish(`c_${companyId}`, 'leads_list_refresh', { action: 'updated', leadId: req.params.id });
+    sseService.publish(`c_${companyId}`, 'leads_list_refresh', { action: 'updated', leadId });
 
     return successResponse(res, "Lead updated successfully", leadWithDetails, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
 };
-
 const bulkUploadLeads = async (req, res) => {
   try {
     const { leadsToCreate, processingErrors, lead_source_id } = req;
@@ -699,7 +730,9 @@ const getLeadDetails = async (req, res) => {
         last_contacted: leadData.last_contacted,
         next_follow_up: leadData.next_follow_up,
         created_at: leadData.created_at,
-        updated_at: leadData.updated_at
+        updated_at: leadData.updated_at,
+
+        lead_data: leadData.lead_data || {}
       },
     };
 
