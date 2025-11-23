@@ -28,8 +28,6 @@ const {
   updateStaffPassword: updateStaffPasswordModel
 } = require('../models/staffModel');
 
-const Staff = require("../models/staffModel");
-
 const { updateSubscriptionStatusManual } = require('../models/super-admin-models/companyModel');
 const { getPackageById, getActivePackages } = require('../models/super-admin-models/subscriptionModel');
 const { createInvoice, getInvoiceById, updateInvoice } = require('../models/super-admin-models/invoiceModel');
@@ -87,11 +85,12 @@ const signup = async (req, res) => {
 
       return successResponse(res, "OTP sent to your email address", {}, 200, req);
     } catch (emailError) {
-      console.error("Signup Error:", emailError);
+      console.error("Signup Email Error:", emailError);
       return errorResponse(res, 500, "Failed to send OTP email");
     }
 
   } catch (error) {
+    console.error("Signup Controller Error:", error);
     return errorResponse(res, 500, "Internal server error");
   }
 };
@@ -129,6 +128,7 @@ const verifyOTP = async (req, res) => {
     return successResponse(res, "OTP verified successfully. Please set your password.", {}, 200, req);
 
   } catch (error) {
+    console.error("Verify OTP Error:", error);
     return errorResponse(res, 500, "Internal server error");
   }
 };
@@ -169,6 +169,7 @@ const setPassword = async (req, res) => {
     return successResponse(res, "Account created successfully. You can now login.", {}, 200, req);
 
   } catch (error) {
+    console.error("Set Password Error:", error);
     return errorResponse(res, 500, "Internal server error");
   }
 };
@@ -191,6 +192,7 @@ const login = async (req, res) => {
     let dbId = null;
     let responsePayload = {};
 
+    // 1. Try Company Admin Login
     const company = await getCompanyByEmail(trimmedEmail);
     if (company && company.email_verified && company.password_hash) {
       const isValidPassword = await verifyPassword(trimmedPassword, company.password_hash);
@@ -223,6 +225,7 @@ const login = async (req, res) => {
       }
     }
 
+    // 2. Try Staff Login (if not a company admin)
     if (!userType) {
       try {
         const staff = await staffLoginModel(trimmedEmail, trimmedPassword);
@@ -252,14 +255,14 @@ const login = async (req, res) => {
           };
         }
       } catch (staffError) {
-
+        // FIX: Log the error to see if DB connection is failing/timing out here
+        console.error("Staff Login Check Failed:", staffError);
       }
     }
 
     if (!userData) {
       return errorResponse(res, 401, "Invalid credentials or account not verified/active");
     }
-
 
     const tokenPayload = {
       id: dbId,
@@ -269,7 +272,6 @@ const login = async (req, res) => {
 
     const accessToken = generateAccessToken(tokenPayload);
     const refreshToken = generateRefreshToken({ ...tokenPayload, version: 1 });
-
 
     if (userType === 'company') {
       await createCompanySession(dbId, refreshToken, ip, userAgent);
@@ -291,7 +293,7 @@ const login = async (req, res) => {
     }, 200, req);
 
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('Login Controller Critical Error:', error);
     return errorResponse(res, 500, "Internal server error");
   }
 };
@@ -327,10 +329,10 @@ const refreshToken = async (req, res) => {
     return successResponse(res, "Token refreshed", { token: newAccessToken }, 200, req);
 
   } catch (error) {
+    console.error("Refresh Token Error:", error);
     return errorResponse(res, 500, error.message);
   }
 };
-
 
 const forgotPassword = async (req, res) => {
   try {
@@ -352,6 +354,7 @@ const forgotPassword = async (req, res) => {
     return successResponse(res, "Password reset OTP sent to email", {}, 200, req);
 
   } catch (error) {
+    console.error("Forgot Password Error:", error);
     return errorResponse(res, 500, "Internal server error");
   }
 };
@@ -382,6 +385,7 @@ const resetPassword = async (req, res) => {
     return successResponse(res, "Password reset successfully", {}, 200, req);
 
   } catch (error) {
+    console.error("Reset Password Error:", error);
     return errorResponse(res, 500, "Internal server error");
   }
 };
@@ -398,6 +402,7 @@ const getAvailablePackages = async (req, res) => {
       packages: availablePackages
     }, 200, req);
   } catch (error) {
+    console.error("Get Packages Error:", error);
     return errorResponse(res, 500, "Failed to retrieve subscription packages for selection.");
   }
 };
@@ -645,6 +650,7 @@ const updateProfile = async (req, res) => {
     if (error.message.includes("No valid fields")) {
       return errorResponse(res, 400, error.message);
     }
+    console.error("Update Profile Error:", error);
     return errorResponse(res, 500, "Internal server error");
   }
 };
@@ -739,6 +745,7 @@ const getProfile = async (req, res) => {
       return successResponse(res, "Profile fetched successfully", staffData, 200, req);
     }
   } catch (error) {
+    console.error("Get Profile Error:", error);
     return errorResponse(res, 500, "Internal server error");
   }
 };
@@ -778,6 +785,7 @@ const changePassword = async (req, res) => {
       }, 200, req);
     }
   } catch (err) {
+    console.error("Change Password Error:", err);
     return errorResponse(res, 500, err.message);
   }
 };
