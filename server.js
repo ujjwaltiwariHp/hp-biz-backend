@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const path = require('path');
-const cookieParser = require('cookie-parser'); // <--- 1. ADD THIS IMPORT
+const cookieParser = require('cookie-parser');
 require('dotenv').config();
 
 const pool = require('./src/config/database');

@@ -8,10 +8,18 @@ const {
   verifyPassword,
   updateSuperAdminStatus,
   deleteSuperAdmin,
-  getSuperAdminRoleById
+  getSuperAdminRoleById,
+  createSuperAdminSession,
+  findSuperAdminSession,
+  deleteSuperAdminSession
 } = require('../../models/super-admin-models/authModel');
 
-const { generateToken } = require('../../utils/jwtHelper');
+const {
+  generateAccessToken,
+  generateRefreshToken,
+  verifyToken
+} = require('../../utils/jwtHelper');
+
 const { errorResponse } = require('../../utils/errorResponse');
 const { successResponse } = require('../../utils/responseFormatter');
 const pool = require('../../config/database');
@@ -41,11 +49,11 @@ const safeParsePermissions = (permissionsData) => {
     return { "all": ["view"] };
 };
 
-
 const login = async (req, res) => {
   try {
-
     const { email, password } = req.body;
+    const ip = req.ip;
+    const userAgent = req.get('User-Agent');
 
     if (!email || !password) {
       return errorResponse(res, 400, "Email and password are required");
@@ -71,20 +79,27 @@ const login = async (req, res) => {
     const rolePermissions = superAdmin.permissions;
     let permissions = safeParsePermissions(rolePermissions);
 
-
-    const token = generateToken({
+    const payload = {
       id: superAdmin.id,
       email: superAdmin.email,
       type: 'super_admin',
       is_super_admin: superAdmin.is_super_admin || false,
       permissions: permissions
-    });
+    };
 
-    res.cookie("auth-token", token, {
+    // Generate Tokens
+    const accessToken = generateAccessToken(payload);
+    const refreshToken = generateRefreshToken({ ...payload, version: 1 });
+
+    // Create Session
+    await createSuperAdminSession(superAdmin.id, refreshToken, ip, userAgent);
+
+    // Set Refresh Token Cookie
+    res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
       path: "/"
     });
 
@@ -94,7 +109,7 @@ const login = async (req, res) => {
       success: true,
       message: "Login successful",
       data: {
-        token,
+        token: accessToken, // Return Access Token in body
         superAdmin: {
           ...superAdminProfile,
           permissions: permissions
@@ -107,7 +122,48 @@ const login = async (req, res) => {
     });
 
   } catch (error) {
+    console.error("Super Admin Login Error:", error);
     return errorResponse(res, 500, "Internal server error during login operation");
+  }
+};
+
+const refreshToken = async (req, res) => {
+  try {
+    const token = req.cookies.refreshToken;
+    if (!token) return errorResponse(res, 401, "No refresh token provided");
+
+    const decoded = verifyToken(token);
+    if (!decoded) return errorResponse(res, 403, "Invalid token");
+
+    const session = await findSuperAdminSession(token);
+    if (!session) {
+      res.clearCookie('refreshToken');
+      return errorResponse(res, 403, "Session expired or invalid");
+    }
+
+    // Re-fetch admin to ensure permissions/status haven't changed
+    const superAdmin = await getSuperAdminById(decoded.id);
+    if (!superAdmin || superAdmin.status === 'inactive') {
+       return errorResponse(res, 403, "Account inactive or not found");
+    }
+
+    const permissions = safeParsePermissions(superAdmin.permissions);
+
+    const payload = {
+      id: superAdmin.id,
+      email: superAdmin.email,
+      type: 'super_admin',
+      is_super_admin: superAdmin.is_super_admin || false,
+      permissions: permissions
+    };
+
+    const newAccessToken = generateAccessToken(payload);
+
+    return successResponse(res, "Token refreshed", { token: newAccessToken }, 200, req);
+
+  } catch (error) {
+    console.error("Refresh Token Error:", error);
+    return errorResponse(res, 500, error.message);
   }
 };
 
@@ -246,10 +302,22 @@ const changePassword = async (req, res) => {
 
 const logout = async (req, res) => {
   try {
-    res.clearCookie("auth-token", { path: "/" });
+    const token = req.cookies.refreshToken;
+
+    if (token) {
+        await deleteSuperAdminSession(token);
+    }
+
+    res.clearCookie("refreshToken", {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        path: "/"
+    });
 
     return successResponse(res, "Logged out successfully", {}, 200, req);
   } catch (error) {
+    console.error("Logout Error:", error);
     return errorResponse(res, 500, "Failed to log out");
   }
 };
@@ -356,6 +424,7 @@ const updateSuperAdminRolePermissions = async (req, res) => {
 
 module.exports = {
   login,
+  refreshToken,
   createAdmin,
   getProfile,
   getAllAdmins,

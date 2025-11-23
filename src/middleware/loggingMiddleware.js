@@ -28,15 +28,8 @@ const getClientIP = (req) => {
 
 const normalizeIP = (ip) => {
   if (!ip) return '0.0.0.0';
-
-  if (ip.startsWith('::ffff:')) {
-    return ip.substring(7);
-  }
-
-  if (ip === '::1') {
-    return '127.0.0.1';
-  }
-
+  if (ip.startsWith('::ffff:')) return ip.substring(7);
+  if (ip === '::1') return '127.0.0.1';
   return ip;
 };
 
@@ -55,22 +48,26 @@ const logActivity = (req, res, next) => {
       try {
         let staff_id = null;
         let company_id = null;
+        let super_admin_id = null;
 
-
+        // 1. Identify User Context
         if (req.userType === 'staff' && req.staff) {
           staff_id = req.staff.id;
           company_id = req.staff.company_id;
         } else if (req.userType === 'admin' && req.company) {
           company_id = req.company.id;
-          staff_id = null;
         } else if (req.userType === 'super_admin' && req.superAdmin) {
+          super_admin_id = req.superAdmin.id;
 
-            staff_id = null;
-            company_id = null;
-        }
-
-        if (!company_id && !staff_id) {
-
+          // CRITICAL FIX: If Super Admin is acting on a company route, extract company_id from params
+          // This ensures the action shows up in the Company's logs too.
+          if (req.params.companyId) {
+            company_id = parseInt(req.params.companyId);
+          } else if (req.baseUrl.includes('/companies') && req.params.id) {
+            company_id = parseInt(req.params.id);
+          } else if (req.body.company_id) {
+            company_id = parseInt(req.body.company_id);
+          }
         }
 
         const action_type = getActionType(req.method, req.originalUrl);
@@ -88,6 +85,7 @@ const logActivity = (req, res, next) => {
         const activityData = {
           staff_id,
           company_id,
+          super_admin_id,
           action_type,
           resource_type: resource_info.resource_type,
           resource_id: resource_info.resource_id,
@@ -103,6 +101,7 @@ const logActivity = (req, res, next) => {
     });
   };
 
+  // Wrap response methods
   res.send = function(data) {
     logAfterResponse();
     return originalSend.call(this, data);
@@ -122,43 +121,44 @@ const logActivity = (req, res, next) => {
 };
 
 const getActionType = (method, url) => {
-  if (url.includes('/login')) return 'LOGIN';
-  if (url.includes('/logout')) return 'LOGOUT';
-  if (url.includes('/register') || url.includes('/signup')) return 'REGISTER';
-  if (url.includes('/verify-otp')) return 'VERIFY_OTP';
-  if (url.includes('/forgot-password')) return 'FORGOT_PASSWORD';
-  if (url.includes('/reset-password')) return 'RESET_PASSWORD';
-  if (url.includes('/change-password')) return 'CHANGE_PASSWORD';
-  if (url.includes('/profile') && method === 'PUT') return 'UPDATE_PROFILE';
-  if (url.includes('/profile') && method === 'GET') return 'VIEW_PROFILE';
+  const lowerUrl = url.toLowerCase();
+  if (lowerUrl.includes('/login')) return 'LOGIN';
+  if (lowerUrl.includes('/logout')) return 'LOGOUT';
+  if (lowerUrl.includes('/register') || lowerUrl.includes('/signup')) return 'REGISTER';
+  if (lowerUrl.includes('/verify-otp')) return 'VERIFY_OTP';
+  if (lowerUrl.includes('/forgot-password')) return 'FORGOT_PASSWORD';
+  if (lowerUrl.includes('/reset-password')) return 'RESET_PASSWORD';
+  if (lowerUrl.includes('/change-password')) return 'CHANGE_PASSWORD';
+  if (lowerUrl.includes('/profile') && method === 'PUT') return 'UPDATE_PROFILE';
+  if (lowerUrl.includes('/profile') && method === 'GET') return 'VIEW_PROFILE';
 
   switch (method) {
     case 'GET':
-      if (url.includes('/export')) return 'EXPORT';
-      if (url.includes('/download')) return 'DOWNLOAD';
-      if (url.includes('/dashboard')) return 'VIEW_DASHBOARD';
-      if (url.includes('/reports')) return 'VIEW_REPORT';
-      if (url.includes('/performance')) return 'VIEW_PERFORMANCE';
-      if (url.includes('/search')) return 'SEARCH';
+      if (lowerUrl.includes('/export')) return 'EXPORT';
+      if (lowerUrl.includes('/download')) return 'DOWNLOAD';
+      if (lowerUrl.includes('/dashboard')) return 'VIEW_DASHBOARD';
+      if (lowerUrl.includes('/reports')) return 'VIEW_REPORT';
+      if (lowerUrl.includes('/performance')) return 'VIEW_PERFORMANCE';
+      if (lowerUrl.includes('/search')) return 'SEARCH';
       if (url.match(/\/\d+$/)) return 'VIEW_DETAILS';
       return 'VIEW';
     case 'POST':
-      if (url.includes('/bulk')) return 'BULK_CREATE';
-      if (url.includes('/import')) return 'IMPORT';
-      if (url.includes('/assign')) return 'ASSIGN';
-      if (url.includes('/distribute')) return 'DISTRIBUTE';
+      if (lowerUrl.includes('/bulk')) return 'BULK_CREATE';
+      if (lowerUrl.includes('/import')) return 'IMPORT';
+      if (lowerUrl.includes('/assign')) return 'ASSIGN';
+      if (lowerUrl.includes('/distribute')) return 'DISTRIBUTE';
       return 'CREATE';
     case 'PUT':
     case 'PATCH':
-      if (url.includes('/bulk')) return 'BULK_UPDATE';
-      if (url.includes('/assign')) return 'ASSIGN';
-      if (url.includes('/status')) return 'UPDATE_STATUS';
-      if (url.includes('/complete')) return 'COMPLETE';
-      if (url.includes('/activate')) return 'ACTIVATE';
-      if (url.includes('/deactivate')) return 'DEACTIVATE';
+      if (lowerUrl.includes('/bulk')) return 'BULK_UPDATE';
+      if (lowerUrl.includes('/assign')) return 'ASSIGN';
+      if (lowerUrl.includes('/status')) return 'UPDATE_STATUS';
+      if (lowerUrl.includes('/complete')) return 'COMPLETE';
+      if (lowerUrl.includes('/activate')) return 'ACTIVATE';
+      if (lowerUrl.includes('/deactivate')) return 'DEACTIVATE';
       return 'UPDATE';
     case 'DELETE':
-      if (url.includes('/bulk')) return 'BULK_DELETE';
+      if (lowerUrl.includes('/bulk')) return 'BULK_DELETE';
       return 'DELETE';
     default:
       return 'UNKNOWN';
@@ -168,112 +168,59 @@ const getActionType = (method, url) => {
 const getResourceInfo = (url, body = {}, params = {}) => {
   let resource_type = 'unknown';
   let resource_id = null;
+  const lowerUrl = url.toLowerCase();
 
-  if (url.includes('/leads') || url.includes('/lead/')) {
-    resource_type = 'lead';
-    const match = url.match(/\/leads?\/(\d+)/) || url.match(/\/lead\/(\d+)/);
-    resource_id = match ? parseInt(match[1]) : (params.id ? parseInt(params.id) : null);
-  }
-  else if (url.includes('/staff')) {
-    resource_type = 'staff';
-    const match = url.match(/\/staff\/(\d+)/);
-    resource_id = match ? parseInt(match[1]) : (params.id ? parseInt(params.id) : null);
-  }
-  else if (url.includes('/companies') || url.includes('/company')) {
-    resource_type = 'company';
-    const match = url.match(/\/compan(?:y|ies)\/(\d+)/);
-    resource_id = match ? parseInt(match[1]) : (params.companyId ? parseInt(params.companyId) : (params.id ? parseInt(params.id) : null));
-  }
-  else if (url.includes('/roles') || url.includes('/role/')) {
-    resource_type = 'role';
-    const match = url.match(/\/roles?\/(\d+)/);
-    resource_id = match ? parseInt(match[1]) : (params.id ? parseInt(params.id) : null);
-  }
-  else if (url.includes('/sources') || url.includes('/lead-sources')) {
-    resource_type = 'lead_source';
-    const match = url.match(/\/(?:sources|lead-sources)\/(\d+)/);
-    resource_id = match ? parseInt(match[1]) : (params.id ? parseInt(params.id) : null);
-  }
-  else if (url.includes('/statuses') || url.includes('/lead-statuses')) {
-    resource_type = 'lead_status';
-    const match = url.match(/\/(?:statuses|lead-statuses)\/(\d+)/);
-    resource_id = match ? parseInt(match[1]) : (params.id ? parseInt(params.id) : null);
-  }
-  else if (url.includes('/tags') || url.includes('/lead-tags')) {
-    resource_type = 'lead_tag';
-    const match = url.match(/\/(?:tags|lead-tags)\/(\d+)/);
-    resource_id = match ? parseInt(match[1]) : (params.id ? parseInt(params.id) : null);
-  }
-  else if (url.includes('/follow-ups') || url.includes('/reminders')) {
-    resource_type = 'follow_up_reminder';
-    const match = url.match(/\/(?:follow-ups|reminders)\/(\d+)/);
-    resource_id = match ? parseInt(match[1]) : (params.id ? parseInt(params.id) : null);
-  }
-  else if (url.includes('/performance')) {
-    resource_type = 'performance';
-  }
-  else if (url.includes('/reports')) {
-    resource_type = 'report';
-  }
-  else if (url.includes('/dashboard')) {
-    resource_type = 'dashboard';
-  }
-  else if (url.includes('/settings')) {
-    resource_type = 'company_settings';
-  }
-  else if (url.includes('/notifications')) {
-    resource_type = 'notification';
-    const match = url.match(/\/notifications\/(\d+)/);
-    resource_id = match ? parseInt(match[1]) : (params.id ? parseInt(params.id) : null);
-  }
-  else if (url.includes('/profile')) {
-    resource_type = 'profile';
-  }
-  else if (url.includes('/auth')) {
-    resource_type = 'auth';
-  }
-  else if (url.includes('/super-admin/')) {
-    if (url.includes('/subscriptions')) resource_type = 'subscription';
-    if (url.includes('/payments')) resource_type = 'payment';
-    if (url.includes('/invoices')) resource_type = 'invoice';
-    if (url.includes('/logs')) resource_type = 'logging';
-    if (url.includes('/companies')) resource_type = 'company';
+  if (lowerUrl.includes('/leads') || lowerUrl.includes('/lead/')) resource_type = 'lead';
+  else if (lowerUrl.includes('/staff')) resource_type = 'staff';
+  else if (lowerUrl.includes('/companies') || lowerUrl.includes('/company')) resource_type = 'company';
+  else if (lowerUrl.includes('/roles') || lowerUrl.includes('/role/')) resource_type = 'role';
+  else if (lowerUrl.includes('/sources') || lowerUrl.includes('/lead-sources')) resource_type = 'lead_source';
+  else if (lowerUrl.includes('/statuses') || lowerUrl.includes('/lead-statuses')) resource_type = 'lead_status';
+  else if (lowerUrl.includes('/tags') || lowerUrl.includes('/lead-tags')) resource_type = 'lead_tag';
+  else if (lowerUrl.includes('/follow-ups') || lowerUrl.includes('/reminders')) resource_type = 'follow_up_reminder';
+  else if (lowerUrl.includes('/performance')) resource_type = 'performance';
+  else if (lowerUrl.includes('/reports')) resource_type = 'report';
+  else if (lowerUrl.includes('/dashboard')) resource_type = 'dashboard';
+  else if (lowerUrl.includes('/settings')) resource_type = 'company_settings';
+  else if (lowerUrl.includes('/notifications')) resource_type = 'notification';
+  else if (lowerUrl.includes('/profile')) resource_type = 'profile';
+  else if (lowerUrl.includes('/auth')) resource_type = 'auth';
+
+  // Super Admin Specific Resources
+  else if (lowerUrl.includes('/super-admin/')) {
+    if (lowerUrl.includes('/subscriptions')) resource_type = 'subscription';
+    if (lowerUrl.includes('/payments')) resource_type = 'payment';
+    if (lowerUrl.includes('/invoices')) resource_type = 'invoice';
+    if (lowerUrl.includes('/logs')) resource_type = 'logging';
+    if (lowerUrl.includes('/companies')) resource_type = 'company';
   }
 
-  if (!resource_id && body && body.id) {
-    resource_id = parseInt(body.id);
-  }
+  // Attempt to find ID from params or body
+  if (params.id) resource_id = parseInt(params.id);
+  else if (params.companyId) resource_id = parseInt(params.companyId);
+  else if (params.staffId) resource_id = parseInt(params.staffId);
+  else if (body && body.id) resource_id = parseInt(body.id);
+
+  if (isNaN(resource_id)) resource_id = null;
 
   return { resource_type, resource_id };
 };
 
 const shouldLogActivity = (action_type, url) => {
   const skipPatterns = [
-    '/health',
-    '/status',
-    '/ping',
-    '/favicon',
-    '/assets',
-    '/static',
-    '/docs',
-    '/api-docs',
-    '/swagger',
-    '/activity'
+    '/health', '/status', '/ping', '/favicon', '/assets',
+    '/static', '/docs', '/api-docs', '/swagger', '/activity', '/stream'
   ];
 
-  if (!action_type) {
-    return false;
-  }
+  if (!action_type) return false;
+  if (skipPatterns.some(pattern => url.includes(pattern))) return false;
 
-  if (skipPatterns.some(pattern => url.includes(pattern))) {
-    return false;
-  }
-
+  // Don't log generic view actions unless they are significant
   if (action_type === 'VIEW' &&
       !url.includes('/profile') &&
       !url.includes('/dashboard') &&
       !url.includes('/reports') &&
-      !url.match(/\/\d+$/)
+      !url.match(/\/\d+$/) // View Details with ID
     ) {
     return false;
   }
@@ -288,7 +235,6 @@ const globalLogActivity = (req, res, next) => {
       req.originalUrl.includes('/swagger')) {
     return next();
   }
-
   return logActivity(req, res, next);
 };
 
@@ -297,13 +243,15 @@ const logSystemActivity = (level, category, message) => {
     try {
       let staff_id = null;
       let company_id = null;
+      let super_admin_id = null;
 
       if (req.userType === 'staff' && req.staff) {
         staff_id = req.staff.id;
         company_id = req.staff.company_id;
       } else if (req.userType === 'admin' && req.company) {
         company_id = req.company.id;
-        staff_id = null;
+      } else if (req.userType === 'super_admin' && req.superAdmin) {
+        super_admin_id = req.superAdmin.id;
       }
 
       const rawIP = getClientIP(req);
@@ -312,6 +260,7 @@ const logSystemActivity = (level, category, message) => {
       const logData = {
         company_id,
         staff_id,
+        super_admin_id,
         log_level: level.toUpperCase(),
         log_category: category,
         message: `${message} - ${req.method} ${req.originalUrl}`,
@@ -322,7 +271,6 @@ const logSystemActivity = (level, category, message) => {
     } catch (error) {
       console.error('Failed to log system activity:', error);
     }
-
     next();
   };
 };
@@ -334,13 +282,13 @@ const logError = async (err, req, res, next) => {
     let company_id = null;
     let email = 'N/A';
     let staff_id_for_log = null;
+    let super_admin_id = null;
 
     if (req.superAdmin) {
       user_id = req.superAdmin.id;
+      super_admin_id = req.superAdmin.id;
       user_type = 'Super Admin';
-      company_id = null;
       email = req.superAdmin.email;
-      staff_id_for_log = null;
     } else if (req.staff) {
       user_id = req.staff.id;
       user_type = 'Staff';
@@ -352,7 +300,6 @@ const logError = async (err, req, res, next) => {
       user_type = 'Company Admin';
       company_id = req.company.id;
       email = req.company.admin_email;
-      staff_id_for_log = null;
     }
 
     const rawIP = getClientIP(req);
@@ -361,9 +308,10 @@ const logError = async (err, req, res, next) => {
     const logData = {
       company_id,
       staff_id: staff_id_for_log,
+      super_admin_id,
       log_level: 'ERROR',
       log_category: 'api',
-      message: `Error: ${err.message} | User: ${email} (${user_type}, ID: ${user_id}) | ${req.method} ${req.originalUrl} | Stack: ${err.stack?.substring(0, 500)}`,
+      message: `Error: ${err.message} | User: ${email} (${user_type}) | ${req.method} ${req.originalUrl}`,
       ip_address
     };
 

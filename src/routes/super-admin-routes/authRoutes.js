@@ -3,6 +3,7 @@ const router = express.Router();
 
 const {
   login,
+  refreshToken,
   createAdmin,
   getProfile,
   getAllAdmins,
@@ -24,11 +25,14 @@ const {
   validatePasswordChange,
 } = require("../../middleware/super-admin-middleware/authValidation");
 const { attachTimezoneForSuperAdmin } = require('../../middleware/timezoneMiddleware');
+
 const authChain = [authenticateSuperAdmin, attachTimezoneForSuperAdmin];
 
 router.post("/login", validateSuperAdminLogin, login);
 
-// DASHBOARD/PROFILE VIEW (VIEW access needed for Sub-Admin dashboard)
+
+router.post("/refresh-token", attachTimezoneForSuperAdmin, refreshToken);
+
 router.get("/profile", authChain, requireSuperAdminPermission('super_admins', 'view'), getProfile);
 
 // PROFILE UPDATE (CRUD access needed)
@@ -37,8 +41,8 @@ router.put("/profile", authChain, requireSuperAdminPermission('super_admins', 'u
 // PASSWORD CHANGE (CRUD access needed)
 router.put("/change-password", authChain, requireSuperAdminPermission('super_admins', 'update'), validatePasswordChange, changePassword);
 
-// LOGOUT (No permission check needed)
-router.post("/logout", authChain, logout);
+// LOGOUT (No permission check needed, but requires auth context to know who is logging out)
+router.post("/logout", logout);
 
 
 // ROLES Management

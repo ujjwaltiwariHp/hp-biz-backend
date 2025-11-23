@@ -67,9 +67,9 @@ const createLeadStatusChangeNotification = async (leadId, oldStatus, newStatus, 
 
     if (notifications.length > 0) {
       await Notifications.createBulkNotifications(notifications);
-      for (const notification of notifications) {
-        await sendNotificationEmail(notification.staff_id, companyId, notification.title, notification.message);
-      }
+      await Promise.all(notifications.map(notification =>
+        sendNotificationEmail(notification.staff_id, companyId, notification.title, notification.message)
+      ));
     }
   } catch (error) {
     console.error('Error creating status change notification:', error);
@@ -148,9 +148,9 @@ const createLeadAssignmentNotification = async (leadId, assignedTo, assignedBy, 
 
     if (notifications.length > 0) {
       await Notifications.createBulkNotifications(notifications);
-      for (const notification of notifications) {
-        await sendNotificationEmail(notification.staff_id, companyId, notification.title, notification.message);
-      }
+      await Promise.all(notifications.map(notification =>
+        sendNotificationEmail(notification.staff_id, companyId, notification.title, notification.message)
+      ));
     }
   } catch (error) {
     console.error('Error creating assignment notification:', error);
@@ -227,9 +227,9 @@ const createBulkAssignmentNotification = async (leadIds, assignedTo, assignedBy,
 
     if (notifications.length > 0) {
       await Notifications.createBulkNotifications(notifications);
-      for (const notification of notifications) {
-        await sendNotificationEmail(notification.staff_id, companyId, notification.title, notification.message);
-      }
+      await Promise.all(notifications.map(notification =>
+        sendNotificationEmail(notification.staff_id, companyId, notification.title, notification.message)
+      ));
     }
   } catch (error) {
     console.error('Error creating bulk assignment notification:', error);
@@ -255,7 +255,8 @@ const createCustomNotification = async (companyId, staffIdOrType, title, message
     } else {
       targetStaffIds = [staffIdOrType];
     }
-    for (const staffId of targetStaffIds) {
+
+    await Promise.all(targetStaffIds.map(async (staffId) => {
       await Notifications.createNotification({
         company_id: companyId,
         staff_id: staffId,
@@ -267,7 +268,8 @@ const createCustomNotification = async (companyId, staffIdOrType, title, message
       });
 
       await sendNotificationEmail(staffId, companyId, title, message);
-    }
+    }));
+
     if (staffIdOrType === 'admin' || Array.isArray(staffIdOrType)) {
       const companyResult = await pool.query(
         `SELECT admin_email, company_name FROM companies WHERE id = $1`,
@@ -366,9 +368,9 @@ const createLeadActivityNotification = async (leadId, activityType, staffId, com
 
     if (notifications.length > 0) {
       await Notifications.createBulkNotifications(notifications);
-      for (const notification of notifications) {
-        await sendNotificationEmail(notification.staff_id, companyId, notification.title, notification.message);
-      }
+      await Promise.all(notifications.map(notification =>
+        sendNotificationEmail(notification.staff_id, companyId, notification.title, notification.message)
+      ));
     }
   } catch (error) {
     console.error('Error creating activity notification:', error);
@@ -494,9 +496,9 @@ const createLeadUpdateNotification = async (leadId, updatedBy, companyId, update
 
     if (notifications.length > 0) {
       await Notifications.createBulkNotifications(notifications);
-      for (const notification of notifications) {
-        await sendNotificationEmail(notification.staff_id, companyId, notification.title, notification.message);
-      }
+      await Promise.all(notifications.map(notification =>
+        sendNotificationEmail(notification.staff_id, companyId, notification.title, notification.message)
+      ));
     }
   } catch (error) {
     console.error('Error creating lead update notification:', error);
@@ -536,7 +538,7 @@ const createSubscriptionActivationNotification = async (companyData, packageData
 const createPaymentReceivedNotification = async (companyData, invoiceData, verifiedBySuperAdminId) => {
   try {
     const { id: companyId, company_name } = companyData;
-    const { id: invoiceId, invoice_number, total_amount, currency } = invoiceData; // Added invoiceId extraction
+    const { id: invoiceId, invoice_number, total_amount, currency } = invoiceData;
 
     const message = `Payment of ${currency} ${total_amount} received for ${company_name} (Invoice #${invoice_number}). Verified by SA:${verifiedBySuperAdminId}. Awaiting Final Approval.`;
 

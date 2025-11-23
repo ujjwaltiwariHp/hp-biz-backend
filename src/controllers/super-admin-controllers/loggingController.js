@@ -12,6 +12,8 @@ const getAllCompanyLogs = async (req, res) => {
     const {
       company_id,
       staff_id,
+      user_id,
+      super_admin_id, // Support explicit super admin filter
       action_type,
       resource_type,
       start_date,
@@ -20,16 +22,22 @@ const getAllCompanyLogs = async (req, res) => {
       limit = 50
     } = req.query;
 
-    // If company_id is provided, use it. If it's not provided, set to undefined
-    // to retrieve logs for ALL companies (handled by the fixed model).
-    const resolved_company_id = company_id ? parseInt(company_id) : undefined;
+    let final_company_id = undefined;
+    if (company_id !== undefined) {
+        if (company_id === 'null') {
+            final_company_id = null;
+        } else if (!isNaN(parseInt(company_id))) {
+            final_company_id = parseInt(company_id);
+        }
+    }
 
-    // Allow 'company_id=null' query to fetch ONLY Super Admin actions
-    const final_company_id = company_id === 'null' ? null : resolved_company_id;
+    const target_user_id = staff_id ? parseInt(staff_id) : (user_id ? parseInt(user_id) : null);
+    const target_super_admin_id = super_admin_id ? parseInt(super_admin_id) : null;
 
     const filters = {
       company_id: final_company_id,
-      staff_id: staff_id ? parseInt(staff_id) : null,
+      staff_id: target_user_id,
+      super_admin_id: target_super_admin_id,
       action_type,
       resource_type,
       start_date,
@@ -48,7 +56,7 @@ const getAllCompanyLogs = async (req, res) => {
 
     const totalPages = Math.ceil(totalCount / parsedLimit);
 
-    return successResponse(res, "All company activity logs retrieved successfully", {
+    return successResponse(res, "All activity logs retrieved successfully", {
       logs,
       pagination: {
         page: parsedPage,
@@ -60,7 +68,7 @@ const getAllCompanyLogs = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get all company logs error:', error);
+    console.error('Get all logs error:', error);
     return errorResponse(res, 500, error.message);
   }
 };
@@ -125,6 +133,7 @@ const getAllSystemLogs = async (req, res) => {
     const {
       company_id,
       staff_id,
+      super_admin_id,
       log_level,
       log_category,
       start_date,
@@ -133,13 +142,19 @@ const getAllSystemLogs = async (req, res) => {
       limit = 50
     } = req.query;
 
-    // Resolve company_id: undefined for all, parsed ID for filter, null for only system-wide
-    const resolved_company_id = company_id ? parseInt(company_id) : undefined;
-    const final_company_id = company_id === 'null' ? null : resolved_company_id;
+    let final_company_id = undefined;
+    if (company_id !== undefined) {
+        if (company_id === 'null') {
+            final_company_id = null;
+        } else if (!isNaN(parseInt(company_id))) {
+            final_company_id = parseInt(company_id);
+        }
+    }
 
     const filters = {
       company_id: final_company_id,
       staff_id: staff_id ? parseInt(staff_id) : null,
+      super_admin_id: super_admin_id ? parseInt(super_admin_id) : null,
       log_level,
       log_category,
       start_date,
@@ -183,6 +198,8 @@ const exportAllCompanyLogs = async (req, res) => {
       start_date,
       end_date,
       staff_id,
+      user_id,
+      super_admin_id,
       action_type,
       resource_type
     } = req.query;
@@ -190,12 +207,22 @@ const exportAllCompanyLogs = async (req, res) => {
     let logs;
     let filename;
 
-    const resolved_company_id = company_id ? parseInt(company_id) : undefined;
-    const final_company_id = company_id === 'null' ? null : resolved_company_id;
+    let final_company_id = undefined;
+    if (company_id !== undefined) {
+        if (company_id === 'null') {
+            final_company_id = null;
+        } else if (!isNaN(parseInt(company_id))) {
+            final_company_id = parseInt(company_id);
+        }
+    }
+
+    const target_user_id = staff_id ? parseInt(staff_id) : (user_id ? parseInt(user_id) : null);
+    const target_super_admin_id = super_admin_id ? parseInt(super_admin_id) : null;
 
     const baseFilters = {
         company_id: final_company_id,
-        staff_id: staff_id ? parseInt(staff_id) : null,
+        staff_id: target_user_id,
+        super_admin_id: target_super_admin_id,
         start_date,
         end_date,
         limit: 100000
@@ -209,11 +236,10 @@ const exportAllCompanyLogs = async (req, res) => {
       };
 
       logs = await getUserActivityLogs(filters);
-      filename = `superadmin-activity-logs-${Date.now()}.csv`;
+      filename = `logs-activity-${Date.now()}.csv`;
     } else if (type === 'system') {
-      // System logs do not use action_type/resource_type for filtering
       logs = await getSystemLogs(baseFilters);
-      filename = `superadmin-system-logs-${Date.now()}.csv`;
+      filename = `logs-system-${Date.now()}.csv`;
     } else {
         return errorResponse(res, 400, "Invalid export type. Must be 'activity' or 'system'.");
     }
@@ -233,16 +259,24 @@ const exportAllCompanyLogs = async (req, res) => {
 const convertLogsToCSV = (logs, type) => {
   if (logs.length === 0) return 'No data available';
 
+  const sanitize = (str) => {
+    if (!str) return '';
+    const s = String(str).replace(/"/g, '""');
+    if (/^[=+\-@]/.test(s)) {
+      return `'${s}`;
+    }
+    return s;
+  };
+
   let headers;
   let rows;
 
   if (type === 'activity') {
     headers = [
       'Date',
-      'Time',
-      'Company',
-      'User Type',
       'User Name',
+      'User Type',
+      'Company',
       'Email',
       'Action Type',
       'Resource Type',
@@ -252,29 +286,25 @@ const convertLogsToCSV = (logs, type) => {
     ];
 
     rows = logs.map(log => {
-      const date = new Date(log.created_at);
       return [
-        date.toLocaleDateString(),
-        date.toLocaleTimeString(),
-        log.company_name || 'N/A',
+        log.created_at,
+        log.user_name || 'Unknown',
         log.user_type || 'Unknown',
-        `${log.first_name || ''} ${log.last_name || ''}`.trim() || 'System',
+        log.company_name || 'N/A',
         log.email || 'N/A',
         log.action_type || 'N/A',
         log.resource_type || 'N/A',
         log.resource_id || 'N/A',
-        (log.action_details || '').replace(/"/g, '""'),
+        log.action_details || '',
         log.ip_address || 'N/A'
       ];
     });
   } else {
     headers = [
       'Date',
-      'Time',
       'Company',
       'User Name',
       'Email',
-      'Staff ID',
       'Level',
       'Category',
       'IP Address',
@@ -282,25 +312,22 @@ const convertLogsToCSV = (logs, type) => {
     ];
 
     rows = logs.map(log => {
-      const date = new Date(log.created_at);
       return [
-        date.toLocaleDateString(),
-        date.toLocaleTimeString(),
+        log.created_at,
         log.company_name || 'N/A',
-        `${log.first_name || ''} ${log.last_name || ''}`.trim() || 'System',
+        log.user_name || 'Unknown',
         log.email || 'N/A',
-        log.staff_id || 'N/A',
         log.log_level || 'N/A',
         log.log_category || 'N/A',
         log.ip_address || 'N/A',
-        (log.message || '').replace(/"/g, '""')
+        log.message || ''
       ];
     });
   }
 
   const csvContent = [
     headers.join(','),
-    ...rows.map(row => row.map(field => `"${field}"`).join(','))
+    ...rows.map(row => row.map(field => `"${sanitize(field)}"`).join(','))
   ].join('\n');
 
   return csvContent;

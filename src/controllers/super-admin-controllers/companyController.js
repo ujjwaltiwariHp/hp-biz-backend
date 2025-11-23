@@ -351,6 +351,7 @@ const getUsageReport = async (req, res) => {
 };
 
 const createCompanyByAdmin = async (req, res) => {
+    let newCompanyId = null;
     try {
         const {
             company_name,
@@ -384,18 +385,17 @@ const createCompanyByAdmin = async (req, res) => {
             return errorResponse(res, 500, "Failed to create company.");
         }
 
-        await Role.createDefaultRoles(newCompany.id);
+        newCompanyId = newCompany.id;
 
+        await Role.createDefaultRoles(newCompany.id);
         await createDefaultLeadSources(newCompany.id);
         await createDefaultLeadStatuses(newCompany.id);
-
 
         if (send_welcome_email) {
             const otp = generateOTP();
             const expiresAt = new Date(Date.now() + (process.env.OTP_EXPIRE_MINUTES || 10) * 60 * 1000);
 
             await createResetOTP({ email: admin_email, otp, expires_at: expiresAt });
-
             await sendResetOTPEmail(admin_email, otp);
         }
 
@@ -419,6 +419,15 @@ const createCompanyByAdmin = async (req, res) => {
         }, 201);
 
     } catch (error) {
+        if (newCompanyId) {
+             console.error(`Rolling back creation for company ${newCompanyId} due to error:`, error.message);
+             try {
+                await deleteCompany(newCompanyId);
+             } catch (rollbackError) {
+                console.error('Rollback failed:', rollbackError.message);
+             }
+        }
+
         if (error.message.includes('foreign key')) {
             return errorResponse(res, 400, "Invalid Subscription Package ID provided.");
         }

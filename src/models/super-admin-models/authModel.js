@@ -116,7 +116,6 @@ const getSuperAdminById = async (id) => {
 };
 
 const getAllSuperAdmins = async () => {
-  // Check if status column exists first
   const columnCheck = await pool.query(`
     SELECT column_name
     FROM information_schema.columns
@@ -191,7 +190,6 @@ const deleteSuperAdmin = async (id) => {
 };
 
 const updateSuperAdminStatus = async (id, status) => {
-  // Check if status column exists first
   const columnCheck = await pool.query(`
     SELECT column_name
     FROM information_schema.columns
@@ -213,6 +211,29 @@ const updateSuperAdminStatus = async (id, status) => {
   return rows[0];
 };
 
+// --- SESSION MANAGEMENT (NEW) ---
+
+const createSuperAdminSession = async (adminId, refreshToken, ip, userAgent) => {
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+  await pool.query(
+    `INSERT INTO super_admin_sessions (super_admin_id, refresh_token, ip_address, user_agent, expires_at)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [adminId, refreshToken, ip, userAgent, expiresAt]
+  );
+};
+
+const findSuperAdminSession = async (refreshToken) => {
+  const { rows } = await pool.query(
+    'SELECT * FROM super_admin_sessions WHERE refresh_token = $1 AND expires_at > NOW()',
+    [refreshToken]
+  );
+  return rows[0];
+};
+
+const deleteSuperAdminSession = async (refreshToken) => {
+  await pool.query('DELETE FROM super_admin_sessions WHERE refresh_token = $1', [refreshToken]);
+};
+
 module.exports = {
   createSuperAdmin,
   getSuperAdminByEmail,
@@ -225,4 +246,7 @@ module.exports = {
   verifyPassword,
   getSuperAdminRoleById,
   getSuperAdminRoleByName,
+  createSuperAdminSession,
+  findSuperAdminSession,
+  deleteSuperAdminSession
 };
