@@ -11,7 +11,7 @@ const {
   createCompanyBySuperAdmin
 } = require('../../models/super-admin-models/companyModel');
 const Role = require('../../../src/models/roleModel');
-const { sendResetOTPEmail } = require('../../services/emailService');
+const { sendResetOTPEmail, sendCompanyCreationEmail } = require('../../services/emailService');
 const { createResetOTP, getCompanyByEmail } = require('../../models/authModel');
 const { generateOTP } = require('../../utils/generateOTP');
 const { generateCompanyRegistrationNotification } = require('../../models/super-admin-models/notificationModel');
@@ -19,6 +19,7 @@ const { successResponse } = require('../../utils/successResponse');
 const { errorResponse } = require('../../utils/errorResponse');
 const sseService = require('../../services/sseService');
 const { createDefaultLeadSources, createDefaultLeadStatuses } = require('../../models/leadsModel');
+const { getPackageById } = require('../../models/super-admin-models/subscriptionModel');
 
 const getCompanies = async (req, res) => {
   try {
@@ -392,11 +393,18 @@ const createCompanyByAdmin = async (req, res) => {
         await createDefaultLeadStatuses(newCompany.id);
 
         if (send_welcome_email) {
-            const otp = generateOTP();
-            const expiresAt = new Date(Date.now() + (process.env.OTP_EXPIRE_MINUTES || 10) * 60 * 1000);
+            const packageData = await getPackageById(parseInt(subscription_package_id));
+            const planName = packageData ? packageData.name : 'Custom Plan';
+            const loginUrl = process.env.APP_LOGIN_URL || 'https://app-login-url.com/login';
 
-            await createResetOTP({ email: admin_email, otp, expires_at: expiresAt });
-            await sendResetOTPEmail(admin_email, otp);
+            await sendCompanyCreationEmail(
+                admin_email,
+                admin_name,
+                company_name,
+                planName,
+                password,
+                loginUrl
+            );
         }
 
         await generateCompanyRegistrationNotification({
@@ -408,7 +416,7 @@ const createCompanyByAdmin = async (req, res) => {
 
         sseService.broadcast('sa_company_list_refresh', { action: 'created', companyId: newCompany.id });
 
-        return successResponse(res, "Company created and subscription assigned successfully. Activation OTP sent to admin email.", {
+        return successResponse(res, "Company created and subscription assigned successfully. Welcome email sent to admin.", {
             company: {
                 id: newCompany.id,
                 company_name: newCompany.company_name,

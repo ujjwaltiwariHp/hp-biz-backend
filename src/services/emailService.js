@@ -320,6 +320,35 @@ const sendAdminProvisioningEmail = async (adminEmail, adminName, otp, loginUrl) 
   }
 };
 
+const sendCompanyCreationEmail = async (adminEmail, adminName, companyName, planName, password, loginUrl) => {
+  const content = `
+    <p style="color: ${TEXT_COLOR}; font-size: 16px; line-height: 1.5;">Hello ${adminName},</p>
+    <p style="color: ${TEXT_COLOR}; font-size: 16px; line-height: 1.5;">A new company account for <strong>${companyName}</strong> has been registered successfully with the <strong>${planName}</strong> subscription plan.</p>
+
+    <p style="color: ${TEXT_COLOR}; font-size: 16px; line-height: 1.5;">Here are your login credentials:</p>
+    <table style="width: 100%; margin: 20px 0; border: 1px solid ${BORDER_COLOR}; background-color: ${BG_COLOR}; border-collapse: collapse;">
+      <tr><td style="padding: 10px; border-bottom: 1px solid ${BORDER_COLOR};"><strong>Email:</strong></td><td style="padding: 10px; border-bottom: 1px solid ${BORDER_COLOR};">${adminEmail}</td></tr>
+      <tr><td style="padding: 10px;"><strong>Password:</strong></td><td style="padding: 10px;">${password}</td></tr>
+    </table>
+
+    <p style="color: ${TEXT_COLOR}; font-size: 14px; line-height: 1.5;">Please log in and change your password immediately for security purposes.</p>
+  `;
+
+  try {
+    const sendSmtpEmail = new brevo.SendSmtpEmail();
+    sendSmtpEmail.sender = { name: "HPBIZ", email: process.env.EMAIL_FROM || "ujjwaltiwari.hp@gmail.com" };
+    sendSmtpEmail.to = [{ email: adminEmail }];
+    sendSmtpEmail.subject = `Welcome to HPBIZ - Your Account is Ready`;
+    sendSmtpEmail.htmlContent = getEmailTemplate("Account Created", content, "Login to Dashboard", loginUrl);
+
+    await apiInstance.sendTransacEmail(sendSmtpEmail);
+    console.log('Company creation email sent successfully');
+  } catch (error) {
+    console.error('Brevo email error (Company Creation):', error);
+    throw new Error('Failed to send company creation email');
+  }
+};
+
 
 module.exports = {
   sendSignupOTPEmail,
@@ -329,5 +358,6 @@ module.exports = {
   sendAdminNotificationEmail,
   sendInvoiceEmail,
   sendSubscriptionActivationEmail,
-  sendAdminProvisioningEmail
+  sendAdminProvisioningEmail,
+  sendCompanyCreationEmail
 };
