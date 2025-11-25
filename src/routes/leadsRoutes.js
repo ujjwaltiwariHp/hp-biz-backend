@@ -34,7 +34,8 @@ const {
   deleteFollowUp,
   markFollowUpComplete,
   updateLeadFollowUp,
-  deleteLeadFollowUp
+  deleteLeadFollowUp,
+  downloadSampleCsv
 } = require('../controllers/leadsController');
 
 const { authenticateAny, requirePermission } = require('../middleware/auth');
@@ -72,6 +73,13 @@ router.post('/create',
     checkLeadLimit,
     createLead
 );
+
+router.get('/bulk-upload/sample',
+    ...permissionChain,
+    requireFeature('bulk_upload'),
+    downloadSampleCsv
+);
+
 router.post('/bulk-upload',
     ...permissionChain,
     requireFeature('bulk_upload'),

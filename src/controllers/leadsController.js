@@ -222,63 +222,98 @@ const updateLead = async (req, res) => {
     return errorResponse(res, 500, err.message);
   }
 };
+
 const bulkUploadLeads = async (req, res) => {
   try {
-    const { leadsToCreate, processingErrors, lead_source_id } = req;
+    const { leadsToCreate, processingErrors } = req;
     const companyId = req.company.id;
     const BATCH_SIZE = 25000;
 
-    let created_by, assigned_by, created_by_type, assigned_by_type;
-    let defaultStatusId = 1;
+    let created_by, uploader_id, created_by_type, uploader_type;
 
     if (req.staff) {
       created_by = req.staff.id;
       created_by_type = 'staff';
-      if (req.body.assigned_to) {
-        assigned_by = req.staff.id;
-        assigned_by_type = 'staff';
-      }
+      uploader_id = req.staff.id;
+      uploader_type = 'staff';
     } else if (req.company) {
       created_by = req.company.id;
       created_by_type = 'company';
-      if (req.body.assigned_to) {
-        assigned_by = req.company.id;
-        assigned_by_type = 'company';
-      }
+      uploader_id = req.company.id;
+      uploader_type = 'company';
     }
 
-    if (processingErrors && processingErrors.length > 0) {
-      return errorResponse(res, 400, "File contains invalid rows.", { errors: processingErrors });
-    }
+    const allStatuses = await Lead.getLeadStatuses(companyId);
+    const statusMap = allStatuses.reduce((acc, status) => {
+      acc[status.status_name.toLowerCase()] = status.id;
+      return acc;
+    }, {});
+
+    const allSources = await Lead.getLeadSources(companyId);
+    const sourceMap = allSources.reduce((acc, source) => {
+      acc[source.source_name.toLowerCase()] = source.id;
+      return acc;
+    }, {});
+
+    const allStaff = await Staff.getAllStaff(companyId);
+    const staffMap = allStaff.reduce((acc, staff) => {
+      acc[staff.email.toLowerCase()] = staff.id;
+      return acc;
+    }, {});
+
+    const defaultStatus = allStatuses.find(s => s.is_default) || allStatuses[0];
+    const systemDefaultStatusId = defaultStatus ? defaultStatus.id : 1;
 
     let successCount = 0, failedCount = 0, finalErrors = [];
-    const totalBatches = Math.ceil(leadsToCreate.length / BATCH_SIZE);
 
     for (let i = 0; i < leadsToCreate.length; i += BATCH_SIZE) {
       const batch = leadsToCreate.slice(i, i + BATCH_SIZE);
-      const currentBatch = (i / BATCH_SIZE) + 1;
 
-      const preparedBatch = batch.map(lead => ({
-        company_id: companyId,
-        lead_source_id: parseInt(lead_source_id),
-        first_name: lead.first_name,
-        last_name: lead.last_name,
-        email: lead.email,
-        phone: lead.phone,
-        address: lead.address || null,
-        remarks: lead.remarks || null,
-        company_name: lead.company_name || null,
-        job_title: lead.job_title || null,
-        status_id: lead.status_id || defaultStatusId,
-        assigned_to: req.body.assigned_to || null,
-        created_by,
-        created_by_type,
-        assigned_by: assigned_by || null,
-        assigned_by_type: assigned_by_type || null
-      }));
+      const preparedBatch = batch.map(lead => {
+        let finalStatusId = systemDefaultStatusId;
+        if (lead.status_name && statusMap[lead.status_name.toLowerCase()]) {
+          finalStatusId = statusMap[lead.status_name.toLowerCase()];
+        }
+
+        let finalSourceId = req.body.lead_source_id || null;
+        if (lead.source_name && sourceMap[lead.source_name.toLowerCase()]) {
+          finalSourceId = sourceMap[lead.source_name.toLowerCase()];
+        }
+
+        let assignedToId = null;
+        if (lead.assigned_to_email && staffMap[lead.assigned_to_email.toLowerCase()]) {
+          assignedToId = staffMap[lead.assigned_to_email.toLowerCase()];
+        } else if (req.body.assigned_to) {
+          assignedToId = req.body.assigned_to;
+        }
+
+        let assignedBy = null;
+        let assignedByType = null;
+
+        if (assignedToId) {
+          assignedBy = uploader_id;
+          assignedByType = uploader_type;
+        }
+
+        return {
+          company_id: companyId,
+          lead_source_id: finalSourceId,
+          status_id: finalStatusId,
+          first_name: lead.first_name,
+          last_name: lead.last_name,
+          email: lead.email,
+          phone: lead.phone,
+          address: lead.address,
+          assigned_to: assignedToId,
+          created_by,
+          created_by_type,
+          assigned_by: assignedBy,
+          assigned_by_type: assignedByType
+        };
+      });
 
       try {
-        const result = await Lead.bulkCreateLeadsWithCopy(preparedBatch, defaultStatusId);
+        const result = await Lead.bulkCreateLeadsWithCopy(preparedBatch, systemDefaultStatusId);
         successCount += result.rowCount;
       } catch (dbError) {
         failedCount += batch.length;
@@ -1128,6 +1163,44 @@ const deleteLeadFollowUp = async (req, res) => {
   }
 };
 
+const downloadSampleCsv = async (req, res) => {
+  try {
+    const headers = [
+      'first_name',
+      'last_name',
+      'email',
+      'phone',
+      'address',
+      'status',
+      'lead_source',
+      'assigned_to_email'
+    ];
+
+    const csvHeader = headers.join(',');
+
+    const exampleRow = [
+      'John',
+      'Doe',
+      'john.doe@example.com',
+      '1234567890',
+      '123 Main St City',
+      'New Lead',
+      'Website',
+      'staff.member@example.com'
+    ].join(',');
+
+    const csvContent = csvHeader + '\r\n' + exampleRow;
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=leads_import_sample.csv');
+
+    return res.status(200).send(csvContent);
+
+  } catch (err) {
+    return errorResponse(res, 500, "Failed to generate sample CSV. " + err.message);
+  }
+};
+
 module.exports = {
   createLead,
   bulkUploadLeads,
@@ -1163,5 +1236,6 @@ module.exports = {
   deleteFollowUp,
   markFollowUpComplete,
   updateLeadFollowUp,
-  deleteLeadFollowUp
+  deleteLeadFollowUp,
+  downloadSampleCsv
 };
