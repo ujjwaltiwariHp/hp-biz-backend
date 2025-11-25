@@ -33,25 +33,21 @@ const bulkUploadMiddleware = (req, res, next) => {
     const leadsToCreate = [];
     const processingErrors = [];
 
-    const lead_source_id = req.body.lead_source_id;
-    if (!lead_source_id) {
-      fs.unlinkSync(filePath);
-      return next(new Error("Lead source ID is required for bulk upload."));
-    }
-    req.lead_source_id = lead_source_id;
-
     try {
       if (fileExtension === '.csv') {
         fs.createReadStream(filePath)
           .pipe(csv())
           .on('data', (row) => {
-            // Accept both capitalized and lowercase headers
             const firstName = row['First Name']?.trim() || row['first_name']?.trim();
             const lastName = row['Last Name']?.trim() || row['last_name']?.trim();
             const email = (row['Email']?.trim() || row['email']?.trim())?.toLowerCase();
             const phone = row['Phone']?.trim() || row['phone']?.trim();
             const companyName = row['Company Name']?.trim() || row['company_name']?.trim() || null;
             const jobTitle = row['Job Title']?.trim() || row['job_title']?.trim() || null;
+            const address = row['Address']?.trim() || row['address']?.trim() || null;
+            const statusName = row['Status']?.trim() || row['status']?.trim() || null;
+            const sourceName = row['Lead Source']?.trim() || row['lead_source']?.trim() || null;
+            const assignedToEmail = row['Assigned To Email']?.trim() || row['assigned_to_email']?.trim() || null;
 
             if (!firstName || !lastName || (!email && !phone)) {
               processingErrors.push(`Row missing required data (First Name, Last Name, Email, or Phone).`);
@@ -64,7 +60,11 @@ const bulkUploadMiddleware = (req, res, next) => {
               email: email,
               phone: phone,
               company_name: companyName,
-              job_title: jobTitle
+              job_title: jobTitle,
+              address: address,
+              status_name: statusName,
+              source_name: sourceName,
+              assigned_to_email: assignedToEmail
             });
           })
           .on('end', async () => {
@@ -89,12 +89,14 @@ const bulkUploadMiddleware = (req, res, next) => {
             last_name: rowData[2]?.trim(),
             email: rowData[3]?.trim().toLowerCase(),
             phone: rowData[4]?.trim(),
-            company_name: rowData[5]?.trim() || null,
-            job_title: rowData[6]?.trim() || null
+            address: rowData[5]?.trim() || null,
+            status_name: rowData[6]?.trim() || null,
+            source_name: rowData[7]?.trim() || null,
+            assigned_to_email: rowData[8]?.trim() || null
           };
 
           if (!lead.first_name || !lead.last_name || (!lead.email && !lead.phone)) {
-            processingErrors.push(`Row ${rowNumber} missing required data (First Name, Last Name, Email, or Phone).`);
+            processingErrors.push(`Row ${rowNumber} missing required data.`);
             return;
           }
           leadsToCreate.push(lead);
