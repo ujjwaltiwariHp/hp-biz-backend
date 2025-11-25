@@ -23,9 +23,10 @@ const { getPackageById } = require('../../models/super-admin-models/subscription
 
 const getCompanies = async (req, res) => {
   try {
-    const { page = 1, limit = 10, search = '', status = '' } = req.query;
+    const { page = 1, limit = 10, search = '', status = '', startDate, endDate } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
-    const companies = await getAllCompanies(parseInt(limit), offset, search, status);
+
+    const companies = await getAllCompanies(parseInt(limit), offset, search, status, startDate, endDate);
 
     if (companies.length === 0) {
       return successResponse(res, "No companies found", {
@@ -62,7 +63,6 @@ const getCompanies = async (req, res) => {
     return errorResponse(res, 500, "Failed to retrieve companies");
   }
 };
-
 const getCompany = async (req, res) => {
   try {
     const { id } = req.params;
@@ -263,7 +263,9 @@ const removeCompany = async (req, res) => {
 
 const getDashboard = async (req, res) => {
   try {
-    const stats = await getDashboardStats();
+    const { startDate, endDate } = req.query;
+
+    const stats = await getDashboardStats(startDate, endDate);
 
     if (!stats) {
       return successResponse(res, "Dashboard stats retrieved successfully", {
@@ -271,7 +273,7 @@ const getDashboard = async (req, res) => {
           total_companies: 0,
           active_companies: 0,
           inactive_companies: 0,
-          new_companies_this_month: 0
+          new_companies_period: 0
         }
       });
     }

@@ -21,6 +21,7 @@ const getUserLogs = async (req, res) => {
       resource_type,
       start_date: raw_start_date,
       end_date: raw_end_date,
+      search,
       page = 1,
       limit = 50
     } = req.query;
@@ -35,6 +36,7 @@ const getUserLogs = async (req, res) => {
       resource_type,
       start_date,
       end_date,
+      search,
       page: parseInt(page),
       limit: parseInt(limit)
     };
@@ -50,7 +52,8 @@ const getUserLogs = async (req, res) => {
         action_type,
         resource_type,
         start_date,
-        end_date
+        end_date,
+        search
       })
     ]);
 
@@ -77,6 +80,7 @@ const getSystemEventLogs = async (req, res) => {
       log_category,
       start_date: raw_start_date,
       end_date: raw_end_date,
+      search,
       page = 1,
       limit = 50
     } = req.query;
@@ -91,6 +95,7 @@ const getSystemEventLogs = async (req, res) => {
       log_category,
       start_date,
       end_date,
+      search,
       page: parseInt(page),
       limit: parseInt(limit)
     };
@@ -166,7 +171,8 @@ const exportLogs = async (req, res) => {
       start_date: raw_start_date,
       end_date: raw_end_date,
       staff_id,
-      action_type
+      action_type,
+      search
     } = req.query;
 
     const start_date = raw_start_date ? parseAndConvertToUTC(raw_start_date, req.timezone) : null;
@@ -179,6 +185,7 @@ const exportLogs = async (req, res) => {
         company_id,
         start_date,
         end_date,
+        search,
         limit: 10000
     };
 
