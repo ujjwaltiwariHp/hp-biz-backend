@@ -52,8 +52,9 @@ const safeParsePermissions = (permissionsData) => {
 const login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    const ip = req.ip;
-    const userAgent = req.get('User-Agent');
+
+    const ip = req.ip || '0.0.0.0';
+    const userAgent = req.get('User-Agent') || 'Unknown Device';
 
     if (!email || !password) {
       return errorResponse(res, 400, "Email and password are required");
@@ -79,7 +80,7 @@ const login = async (req, res) => {
     const rolePermissions = superAdmin.permissions;
     let permissions = safeParsePermissions(rolePermissions);
 
-    const payload = {
+    const accessTokenPayload = {
       id: superAdmin.id,
       email: superAdmin.email,
       type: 'super_admin',
@@ -87,19 +88,24 @@ const login = async (req, res) => {
       permissions: permissions
     };
 
-    // Generate Tokens
-    const accessToken = generateAccessToken(payload);
-    const refreshToken = generateRefreshToken({ ...payload, version: 1 });
+    const refreshTokenPayload = {
+      id: superAdmin.id,
+      email: superAdmin.email,
+      type: 'super_admin',
+      version: 1,
+      nonce: Math.random().toString(36).substring(7)
+    };
 
-    // Create Session
+    const accessToken = generateAccessToken(accessTokenPayload);
+    const refreshToken = generateRefreshToken(refreshTokenPayload);
+
     await createSuperAdminSession(superAdmin.id, refreshToken, ip, userAgent);
 
-    // Set Refresh Token Cookie
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
-      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+      maxAge: 30 * 24 * 60 * 60 * 1000,
       path: "/"
     });
 
@@ -109,7 +115,7 @@ const login = async (req, res) => {
       success: true,
       message: "Login successful",
       data: {
-        token: accessToken, // Return Access Token in body
+        token: accessToken,
         superAdmin: {
           ...superAdminProfile,
           permissions: permissions
@@ -123,7 +129,8 @@ const login = async (req, res) => {
 
   } catch (error) {
     console.error("Super Admin Login Error:", error);
-    return errorResponse(res, 500, "Internal server error during login operation");
+    const message = process.env.NODE_ENV === 'development' ? error.message : "Internal server error during login operation";
+    return errorResponse(res, 500, message);
   }
 };
 
