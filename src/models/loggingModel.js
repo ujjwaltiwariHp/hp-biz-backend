@@ -109,11 +109,12 @@ const getUserActivityLogs = async (filters = {}) => {
   const {
     staff_id,
     company_id,
-    super_admin_id, // New filter
+    super_admin_id,
     action_type,
     resource_type,
     start_date,
     end_date,
+    search,
     page = 1,
     limit = 50
   } = filters;
@@ -166,6 +167,21 @@ const getUserActivityLogs = async (filters = {}) => {
 
   const values = [];
   let paramCount = 1;
+
+  if (search && search.trim() !== '') {
+    query += ` AND (
+      ual.action_details ILIKE $${paramCount} OR
+      ual.action_type ILIKE $${paramCount} OR
+      c.company_name ILIKE $${paramCount} OR
+      s.first_name ILIKE $${paramCount} OR
+      s.last_name ILIKE $${paramCount} OR
+      s.email ILIKE $${paramCount} OR
+      sa.email ILIKE $${paramCount} OR
+      sa.name ILIKE $${paramCount}
+    )`;
+    values.push(`%${search.trim()}%`);
+    paramCount++;
+  }
 
   if (company_id !== undefined) {
     if (company_id === null) {
@@ -237,6 +253,7 @@ const getSystemLogs = async (filters = {}) => {
     log_category,
     start_date,
     end_date,
+    search,
     page = 1,
     limit = 50
   } = filters;
@@ -273,6 +290,21 @@ const getSystemLogs = async (filters = {}) => {
 
   const values = [];
   let paramCount = 1;
+
+  if (search && search.trim() !== '') {
+    query += ` AND (
+      sl.message ILIKE $${paramCount} OR
+      sl.log_category ILIKE $${paramCount} OR
+      c.company_name ILIKE $${paramCount} OR
+      s.first_name ILIKE $${paramCount} OR
+      s.last_name ILIKE $${paramCount} OR
+      s.email ILIKE $${paramCount} OR
+      sa.email ILIKE $${paramCount} OR
+      sa.name ILIKE $${paramCount}
+    )`;
+    values.push(`%${search.trim()}%`);
+    paramCount++;
+  }
 
   if (company_id !== undefined) {
       if (company_id === null) query += ` AND sl.company_id IS NULL`;
@@ -334,10 +366,34 @@ const getSystemLogs = async (filters = {}) => {
 };
 
 const getTotalLogsCount = async (filters = {}) => {
-  const { staff_id, company_id, super_admin_id, action_type, resource_type, start_date, end_date } = filters;
-  let query = `SELECT COUNT(*) as total FROM user_activity_logs ual WHERE 1=1`;
+  const { staff_id, company_id, super_admin_id, action_type, resource_type, start_date, end_date, search } = filters;
+
+  let query = `
+    SELECT COUNT(*) as total
+    FROM user_activity_logs ual
+    LEFT JOIN staff s ON ual.staff_id = s.id
+    LEFT JOIN companies c ON ual.company_id = c.id
+    LEFT JOIN super_admins sa ON ual.super_admin_id = sa.id
+    WHERE 1=1
+  `;
+
   const values = [];
   let paramCount = 1;
+
+  if (search && search.trim() !== '') {
+    query += ` AND (
+      ual.action_details ILIKE $${paramCount} OR
+      ual.action_type ILIKE $${paramCount} OR
+      c.company_name ILIKE $${paramCount} OR
+      s.first_name ILIKE $${paramCount} OR
+      s.last_name ILIKE $${paramCount} OR
+      s.email ILIKE $${paramCount} OR
+      sa.email ILIKE $${paramCount} OR
+      sa.name ILIKE $${paramCount}
+    )`;
+    values.push(`%${search.trim()}%`);
+    paramCount++;
+  }
 
   if (company_id !== undefined) {
     if (company_id === null) query += ` AND ual.company_id IS NULL`;
@@ -359,10 +415,34 @@ const getTotalLogsCount = async (filters = {}) => {
 };
 
 const getTotalSystemLogsCount = async (filters = {}) => {
-    const { staff_id, company_id, super_admin_id, log_level, log_category, start_date, end_date } = filters;
-    let query = `SELECT COUNT(*) as total FROM system_logs sl WHERE 1=1`;
+    const { staff_id, company_id, super_admin_id, log_level, log_category, start_date, end_date, search } = filters;
+
+    let query = `
+      SELECT COUNT(*) as total
+      FROM system_logs sl
+      LEFT JOIN companies c ON sl.company_id = c.id
+      LEFT JOIN staff s ON sl.staff_id = s.id
+      LEFT JOIN super_admins sa ON sl.super_admin_id = sa.id
+      WHERE 1=1
+    `;
+
     const values = [];
     let paramCount = 1;
+
+    if (search && search.trim() !== '') {
+      query += ` AND (
+        sl.message ILIKE $${paramCount} OR
+        sl.log_category ILIKE $${paramCount} OR
+        c.company_name ILIKE $${paramCount} OR
+        s.first_name ILIKE $${paramCount} OR
+        s.last_name ILIKE $${paramCount} OR
+        s.email ILIKE $${paramCount} OR
+        sa.email ILIKE $${paramCount} OR
+        sa.name ILIKE $${paramCount}
+      )`;
+      values.push(`%${search.trim()}%`);
+      paramCount++;
+    }
 
     if (company_id !== undefined) {
       if (company_id === null) query += ` AND sl.company_id IS NULL`;

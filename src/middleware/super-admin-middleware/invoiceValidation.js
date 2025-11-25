@@ -1,7 +1,18 @@
 const { body, query, param, validationResult } = require('express-validator');
 const { errorResponse } = require('../../utils/errorResponse');
 
-const invoiceStatuses = ['pending', 'paid', 'overdue', 'void', 'sent'];
+const invoiceStatuses = [
+  'draft',
+  'pending',
+  'sent',
+  'payment_received',
+  'paid',
+  'partially_paid',
+  'overdue',
+  'void',
+  'cancelled',
+  'rejected'
+];
 
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
@@ -18,9 +29,8 @@ const {
   deleteInvoice,
   getUnpaidPaymentsByCompanyId,
   linkPaymentToInvoice,
-  getPaymentById // <-- add this
+  getPaymentById
 } = require('../../models/super-admin-models/invoiceModel');
-// ...existing imports...
 
 const generateInvoice = async (req, res) => {
   try {

@@ -59,13 +59,11 @@ const logActivity = (req, res, next) => {
         } else if (req.userType === 'super_admin' && req.superAdmin) {
           super_admin_id = req.superAdmin.id;
 
-          // CRITICAL FIX: If Super Admin is acting on a company route, extract company_id from params
-          // This ensures the action shows up in the Company's logs too.
-          if (req.params.companyId) {
+          if (req.params && req.params.companyId) {
             company_id = parseInt(req.params.companyId);
-          } else if (req.baseUrl.includes('/companies') && req.params.id) {
+          } else if (req.baseUrl && req.baseUrl.includes('/companies') && req.params && req.params.id) {
             company_id = parseInt(req.params.id);
-          } else if (req.body.company_id) {
+          } else if (req.body && req.body.company_id) { // FIXED: Added req.body check
             company_id = parseInt(req.body.company_id);
           }
         }
@@ -196,9 +194,9 @@ const getResourceInfo = (url, body = {}, params = {}) => {
   }
 
   // Attempt to find ID from params or body
-  if (params.id) resource_id = parseInt(params.id);
-  else if (params.companyId) resource_id = parseInt(params.companyId);
-  else if (params.staffId) resource_id = parseInt(params.staffId);
+  if (params && params.id) resource_id = parseInt(params.id);
+  else if (params && params.companyId) resource_id = parseInt(params.companyId);
+  else if (params && params.staffId) resource_id = parseInt(params.staffId);
   else if (body && body.id) resource_id = parseInt(body.id);
 
   if (isNaN(resource_id)) resource_id = null;

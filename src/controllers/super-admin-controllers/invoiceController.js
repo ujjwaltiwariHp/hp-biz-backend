@@ -86,10 +86,10 @@ const generateInvoice = async (req, res) => {
 
 const getAllInvoices = async (req, res) => {
   try {
-    const { page = 1, limit = 10, company_id, status, startDate, endDate } = req.query;
+    const { page = 1, limit = 10, company_id, status, startDate, endDate, search } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    const filters = { company_id, status, startDate, endDate };
+    const filters = { company_id, status, startDate, endDate, search };
 
     const invoices = await getAllInvoicesData(parseInt(limit), offset, filters);
 

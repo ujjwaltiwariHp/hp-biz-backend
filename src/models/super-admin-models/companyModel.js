@@ -6,7 +6,7 @@ const generateUniqueId = () => {
   return 'COMP_' + uuidv4().substring(0, 8).toUpperCase();
 };
 
-const getAllCompanies = async (limit = 10, offset = 0, search = '', status = '') => {
+const getAllCompanies = async (limit = 10, offset = 0, search = '', status = '', startDate = null, endDate = null) => {
   try {
     let query = `
       SELECT
@@ -38,6 +38,19 @@ const getAllCompanies = async (limit = 10, offset = 0, search = '', status = '')
       } else if (status === 'inactive') {
         query += ` AND c.is_active = false`;
       }
+    }
+    if (startDate) {
+      query += ` AND c.created_at >= $${paramIndex}`;
+      params.push(startDate);
+      paramIndex++;
+    }
+
+    if (endDate) {
+      query += ` AND c.created_at <= $${paramIndex}`;
+      const endDateTime = new Date(endDate);
+      endDateTime.setHours(23, 59, 59, 999);
+      params.push(endDateTime.toISOString());
+      paramIndex++;
     }
 
     query += ` ORDER BY c.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
@@ -267,17 +280,22 @@ const getCompanyStats = async (id) => {
   }
 };
 
-const getDashboardStats = async () => {
+const getDashboardStats = async (startDate, endDate) => {
   try {
+    const start = startDate ? new Date(startDate) : new Date(new Date().setDate(new Date().getDate() - 30));
+    const end = endDate ? new Date(endDate) : new Date();
+
     const query = `
       SELECT
         COUNT(*)::integer as total_companies,
         COUNT(*) FILTER (WHERE is_active = true)::integer as active_companies,
         COUNT(*) FILTER (WHERE is_active = false)::integer as inactive_companies,
-        COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '30 days')::integer as new_companies_this_month
+        -- Dynamic count based on date range
+        COUNT(*) FILTER (WHERE created_at >= $1 AND created_at <= $2)::integer as new_companies_period
       FROM companies
     `;
-    const result = await pool.query(query);
+
+    const result = await pool.query(query, [start, end]);
     return result.rows[0];
   } catch (error) {
     throw error;

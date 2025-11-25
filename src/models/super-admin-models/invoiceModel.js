@@ -79,8 +79,9 @@ const getAllInvoicesData = async (limit = 10, offset = 0, filters = {}) => {
   try {
     let query = `
       SELECT
-        i.id, i.invoice_number, i.company_id, i.total_amount, i.due_date,
-        i.status, i.created_at,
+        i.id, i.invoice_number, i.company_id,
+        i.amount, i.tax_amount, i.total_amount, i.currency,
+        i.due_date, i.status, i.created_at,
         c.company_name, c.unique_company_id,
         sp.name as package_name,
         COUNT(*) OVER() as total_count
@@ -92,6 +93,16 @@ const getAllInvoicesData = async (limit = 10, offset = 0, filters = {}) => {
 
     const params = [];
     let paramIndex = 1;
+
+    if (filters.search) {
+      query += ` AND (
+        i.invoice_number ILIKE $${paramIndex} OR
+        c.company_name ILIKE $${paramIndex} OR
+        c.unique_company_id ILIKE $${paramIndex}
+      )`;
+      params.push(`%${filters.search}%`);
+      paramIndex++;
+    }
 
     if (filters.company_id) {
       query += ` AND i.company_id = $${paramIndex}`;
@@ -105,15 +116,18 @@ const getAllInvoicesData = async (limit = 10, offset = 0, filters = {}) => {
       paramIndex++;
     }
 
+    // FIX 2: Improved Date Filtering to ensure full day coverage and avoid JS Timezone issues
     if (filters.startDate) {
       query += ` AND i.created_at >= $${paramIndex}`;
+      // Postgres treats 'YYYY-MM-DD' as 'YYYY-MM-DD 00:00:00' automatically
       params.push(filters.startDate);
       paramIndex++;
     }
 
     if (filters.endDate) {
       query += ` AND i.created_at <= $${paramIndex}`;
-      params.push(filters.endDate);
+      // Explicitly append end-of-day time to cover the full end date
+      params.push(`${filters.endDate} 23:59:59.999`);
       paramIndex++;
     }
 
@@ -129,7 +143,6 @@ const getAllInvoicesData = async (limit = 10, offset = 0, filters = {}) => {
 
 const getInvoiceById = async (id) => {
   try {
-    // UPDATED: Added price_monthly and currency, removed any reference to old 'price' column
     const query = `
       SELECT
         i.*,
@@ -156,7 +169,6 @@ const updateInvoice = async (id, updateData) => {
     const params = [id];
     let paramIndex = 2;
 
-    // Dynamically build the update query for all fields, including new manual columns
     for (const key in updateData) {
       fields.push(`${key} = $${paramIndex}`);
       params.push(updateData[key]);

@@ -1,13 +1,8 @@
--- Step 1: Remove package reference from companies
-UPDATE companies
-SET subscription_package_id = NULL;
+ALTER TABLE system_logs
+DROP CONSTRAINT IF EXISTS system_logs_company_id_fkey;
 
--- Step 2: Remove package reference from invoices
-UPDATE invoices
-SET subscription_package_id = NULL;
-
--- Step 3: Delete all subscription packages
-DELETE FROM subscription_packages;
-
-
-ALTER SEQUENCE subscription_packages_id_seq RESTART WITH 1;
+ALTER TABLE system_logs
+ADD CONSTRAINT system_logs_company_id_fkey
+    FOREIGN KEY (company_id)
+    REFERENCES companies(id)
+    ON DELETE CASCADE;

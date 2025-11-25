@@ -13,11 +13,12 @@ const getAllCompanyLogs = async (req, res) => {
       company_id,
       staff_id,
       user_id,
-      super_admin_id, // Support explicit super admin filter
+      super_admin_id,
       action_type,
       resource_type,
       start_date,
       end_date,
+      search,
       page = 1,
       limit = 50
     } = req.query;
@@ -42,6 +43,7 @@ const getAllCompanyLogs = async (req, res) => {
       resource_type,
       start_date,
       end_date,
+      search,
       page: parseInt(page),
       limit: parseInt(limit)
     };
@@ -72,7 +74,6 @@ const getAllCompanyLogs = async (req, res) => {
     return errorResponse(res, 500, error.message);
   }
 };
-
 const getCompanyLogs = async (req, res) => {
   try {
     const company_id = parseInt(req.params.companyId);
