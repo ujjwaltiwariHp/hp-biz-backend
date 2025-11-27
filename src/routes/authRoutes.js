@@ -1,10 +1,12 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const {
+  checkEmail,
   signup,
   verifyOTP,
   setPassword,
   login,
+  setInitialPassword,
   refreshToken,
   getProfile,
   updateProfile,
@@ -46,23 +48,21 @@ const authLimiter = rateLimit({
   }
 });
 
-// ... existing routes ...
+router.post('/check-email', authLimiter, checkEmail);
+router.post('/login', authLimiter, validateLogin, login);
+router.post('/refresh-token', attachTimezone, refreshToken);
+router.post('/logout', authenticateAny, attachTimezone, logActivity, logout);
+
 router.post('/signup', authLimiter, validateAdminEmail, signup);
 router.post('/verify-otp', authLimiter, validateOTP, verifyOTP);
 router.post('/set-password', authLimiter, validatePassword, setPassword);
-router.post('/login', authLimiter, validateLogin, login);
-router.post('/refresh-token', attachTimezone, refreshToken);
+
 router.post('/forgot-password', authLimiter, validateAdminEmail, forgotPassword);
 router.post('/reset-password', authLimiter, validatePassword, resetPassword);
-router.get('/packages', authenticate, attachTimezone, getAvailablePackages);
-router.post('/select-subscription', authenticate, attachTimezone, getCompanySubscriptionAndUsage, selectInitialSubscription);
-router.get('/subscription-status', authenticate, attachTimezone, getSubscriptionStatus);
-router.get('/profile', authenticateAny, attachTimezone, getProfile);
-router.put('/update-profile', authenticate, attachTimezone, updateProfile);
 
+router.post('/set-initial-password', authenticateAny, attachTimezone, setInitialPassword);
 
 router.put('/change-password', authenticateAny, attachTimezone, (req, res, next) => {
-
   if (!req.body || Object.keys(req.body).length === 0) {
     return res.status(400).json({
       success: false,
@@ -89,7 +89,13 @@ router.put('/change-password', authenticateAny, attachTimezone, (req, res, next)
   next();
 }, changePassword);
 
-router.post('/logout', authenticateAny, attachTimezone, logActivity, logout);
+router.get('/profile', authenticateAny, attachTimezone, getProfile);
+router.put('/update-profile', authenticate, attachTimezone, updateProfile);
+
+router.get('/packages', authenticate, attachTimezone, getAvailablePackages);
+router.post('/select-subscription', authenticate, attachTimezone, getCompanySubscriptionAndUsage, selectInitialSubscription);
+router.get('/subscription-status', authenticate, attachTimezone, getSubscriptionStatus);
+
 router.get('/timezones', getTimezones);
 router.get('/timezones/common', getCommonTimezones);
 

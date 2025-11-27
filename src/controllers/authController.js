@@ -19,14 +19,8 @@ const {
   deleteCompanySession
 } = require('../models/authModel');
 
-const {
-  staffLogin: staffLoginModel,
-  createStaffSession,
-  findStaffSession,
-  deleteStaffSession,
-  updateStaff: updateStaffModel,
-  updateStaffPassword: updateStaffPasswordModel
-} = require('../models/staffModel');
+const Staff = require('../models/staffModel');
+const { checkEmailIdentity } = require('../models/authDiscoveryModel');
 
 const { updateSubscriptionStatusManual } = require('../models/super-admin-models/companyModel');
 const { getPackageById, getActivePackages } = require('../models/super-admin-models/subscriptionModel');
@@ -57,6 +51,37 @@ const { createNotification } = require('../../src/models/super-admin-models/noti
 const moment = require('moment');
 const Role = require('../models/roleModel');
 
+const checkEmail = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return errorResponse(res, 400, "Email is required");
+
+    const identities = await checkEmailIdentity(email);
+
+    if (identities.length === 0) {
+      return errorResponse(res, 404, "Account not found");
+    }
+
+    const accounts = identities.map(id => ({
+      user_type: id.user_type,
+      company_id: id.company_id,
+      company_name: id.label,
+      status: id.status,
+      requires_password_change: id.password_status === 'temporary'
+    }));
+
+    return successResponse(res, "Identity found", {
+      email: email,
+      count: accounts.length,
+      accounts: accounts
+    }, 200, req);
+
+  } catch (error) {
+    console.error("Check Email Error:", error);
+    return errorResponse(res, 500, "Internal server error");
+  }
+};
+
 const signup = async (req, res) => {
   try {
     const { email } = req.body;
@@ -80,7 +105,15 @@ const signup = async (req, res) => {
     const expiresAt = new Date(Date.now() + (process.env.OTP_EXPIRE_MINUTES || 10) * 60 * 1000);
 
     try {
-      await upsertTempSignup({ email: trimmedEmail, otp, expires_at: expiresAt });
+      // FIX: Explicitly pass company_id: 0 for new signups
+      await upsertTempSignup({
+        email: trimmedEmail,
+        otp,
+        expires_at: expiresAt,
+        company_id: 0,
+        user_type: 'company'
+      });
+
       await sendSignupOTPEmail(trimmedEmail, otp);
 
       return successResponse(res, "OTP sent to your email address", {}, 200, req);
@@ -109,7 +142,8 @@ const verifyOTP = async (req, res) => {
 
     const trimmedEmail = email.trim().toLowerCase();
 
-    const tempSignup = await getTempSignup(trimmedEmail);
+    // FIX: Look for company_id: 0 (new signup)
+    const tempSignup = await getTempSignup(trimmedEmail, 0, 'company');
 
     if (!tempSignup) {
       return errorResponse(res, 400, "No signup request found. Please signup first.");
@@ -123,7 +157,7 @@ const verifyOTP = async (req, res) => {
       return errorResponse(res, 400, "OTP Expired");
     }
 
-    await markTempSignupVerified(trimmedEmail);
+    await markTempSignupVerified(trimmedEmail, 0, 'company');
 
     return successResponse(res, "OTP verified successfully. Please set your password.", {}, 200, req);
 
@@ -147,7 +181,9 @@ const setPassword = async (req, res) => {
 
     const trimmedEmail = email.trim().toLowerCase();
 
-    const tempSignup = await getTempSignup(trimmedEmail);
+    // FIX: Look for company_id: 0 (new signup)
+    const tempSignup = await getTempSignup(trimmedEmail, 0, 'company');
+
     if (!tempSignup || !tempSignup.is_verified) {
       return errorResponse(res, 403, "Email not verified. Please verify OTP first.");
     }
@@ -164,7 +200,8 @@ const setPassword = async (req, res) => {
     await createDefaultLeadSources(company.id);
     await createDefaultLeadStatuses(company.id);
 
-    await deleteTempSignup(trimmedEmail);
+    // FIX: Delete the specific temp signup
+    await deleteTempSignup(trimmedEmail, 0, 'company');
 
     return successResponse(res, "Account created successfully. You can now login.", {}, 200, req);
 
@@ -176,64 +213,66 @@ const setPassword = async (req, res) => {
 
 const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const ip = req.ip;
+    const { email, password, company_id, user_type } = req.body;
+    const ip = req.ip || '0.0.0.0';
     const userAgent = req.get('User-Agent');
 
     if (!email || !password) {
       return errorResponse(res, 400, "Email and password are required");
     }
 
+    const type = user_type || 'company';
     const trimmedEmail = email.trim().toLowerCase();
     const trimmedPassword = password.trim();
 
-    let userType = null;
     let userData = null;
     let dbId = null;
+    let requiresPasswordChange = false;
     let responsePayload = {};
 
-    // 1. Try Company Admin Login
-    const company = await getCompanyByEmail(trimmedEmail);
-    if (company && company.email_verified && company.password_hash) {
-      const isValidPassword = await verifyPassword(trimmedPassword, company.password_hash);
-      if (isValidPassword) {
-        const detailedCompany = await getCompanyById(company.id);
-        const subscriptionEndDate = moment(detailedCompany.subscription_end_date);
-        const requiresPlanSelection = !detailedCompany.subscription_package_id;
+    if (type === 'company') {
+      const company = await getCompanyByEmail(trimmedEmail);
+      if (company && company.email_verified && company.password_hash) {
+        const isValidPassword = await verifyPassword(trimmedPassword, company.password_hash);
+        if (isValidPassword) {
+          const detailedCompany = await getCompanyById(company.id);
+          const subscriptionEndDate = moment(detailedCompany.subscription_end_date);
+          const requiresPlanSelection = !detailedCompany.subscription_package_id;
 
-        if (!requiresPlanSelection && (!detailedCompany.is_active || subscriptionEndDate.isBefore(moment()))) {
-          return errorResponse(res, 403, "Your company subscription is inactive or expired. Please renew your plan.");
-        }
-
-        userType = 'company';
-        dbId = detailedCompany.id;
-        userData = detailedCompany;
-
-        responsePayload = {
-          company: {
-            id: detailedCompany.id,
-            admin_email: detailedCompany.admin_email,
-            company_name: detailedCompany.company_name,
-            unique_company_id: detailedCompany.unique_company_id,
-            email_verified: detailedCompany.email_verified,
-            created_at: detailedCompany.created_at,
-            subscription_end_date: detailedCompany.subscription_end_date,
-            is_active: detailedCompany.is_active,
-            requires_plan_selection: requiresPlanSelection
+          if (!requiresPlanSelection && (!detailedCompany.is_active || subscriptionEndDate.isBefore(moment()))) {
+            return errorResponse(res, 403, "Your company subscription is inactive or expired. Please renew your plan.");
           }
-        };
-      }
-    }
 
-    // 2. Try Staff Login (if not a company admin)
-    if (!userType) {
+          dbId = detailedCompany.id;
+          userData = detailedCompany;
+
+          responsePayload = {
+            company: {
+              id: detailedCompany.id,
+              admin_email: detailedCompany.admin_email,
+              company_name: detailedCompany.company_name,
+              unique_company_id: detailedCompany.unique_company_id,
+              email_verified: detailedCompany.email_verified,
+              created_at: detailedCompany.created_at,
+              subscription_end_date: detailedCompany.subscription_end_date,
+              is_active: detailedCompany.is_active,
+              requires_plan_selection: requiresPlanSelection
+            }
+          };
+        }
+      }
+    } else if (type === 'staff') {
+      if (!company_id) {
+        return errorResponse(res, 400, "Company ID is required for staff login.");
+      }
+
       try {
-        const staff = await staffLoginModel(trimmedEmail, trimmedPassword);
+        const staff = await Staff.staffLogin(trimmedEmail, trimmedPassword, company_id);
         if (staff) {
-          await updateStaffModel(staff.id, { last_login: new Date() }, staff.company_id);
-          userType = 'staff';
+          await Staff.updateStaff(staff.id, { last_login: new Date() }, staff.company_id);
           dbId = staff.id;
           userData = staff;
+          requiresPasswordChange = (staff.password_status === 'temporary');
 
           responsePayload = {
             staff: {
@@ -249,14 +288,13 @@ const login = async (req, res) => {
               permissions: staff.permissions,
               is_first_login: staff.is_first_login,
               designation: staff.designation,
-              last_login: staff.last_login
-            },
-            require_password_change: staff.is_first_login
+              last_login: staff.last_login,
+              password_status: staff.password_status
+            }
           };
         }
       } catch (staffError) {
-        // FIX: Log the error to see if DB connection is failing/timing out here
-        console.error("Staff Login Check Failed:", staffError);
+        return errorResponse(res, 401, staffError.message || "Login failed");
       }
     }
 
@@ -266,17 +304,20 @@ const login = async (req, res) => {
 
     const tokenPayload = {
       id: dbId,
-      type: userType,
-      ...(userType === 'company' ? { admin_email: userData.admin_email } : { company_id: userData.company_id, role: userData.role_name })
+      type: type,
+      ...(type === 'company'
+        ? { admin_email: userData.admin_email }
+        : { company_id: userData.company_id, role: userData.role_name }
+      )
     };
 
     const accessToken = generateAccessToken(tokenPayload);
     const refreshToken = generateRefreshToken({ ...tokenPayload, version: 1 });
 
-    if (userType === 'company') {
+    if (type === 'company') {
       await createCompanySession(dbId, refreshToken, ip, userAgent);
     } else {
-      await createStaffSession(dbId, refreshToken, ip, userAgent);
+      await Staff.createStaffSession(dbId, refreshToken, ip, userAgent);
     }
 
     res.cookie('refreshToken', refreshToken, {
@@ -288,13 +329,38 @@ const login = async (req, res) => {
 
     return successResponse(res, "Login successful", {
       token: accessToken,
-      userType,
+      userType: type,
+      requires_password_change: requiresPasswordChange,
       ...responsePayload
     }, 200, req);
 
   } catch (error) {
-    console.error('Login Controller Critical Error:', error);
+    console.error('Login Controller Error:', error);
     return errorResponse(res, 500, "Internal server error");
+  }
+};
+
+const setInitialPassword = async (req, res) => {
+  try {
+    const { new_password } = req.body;
+    const staffId = req.staff.id;
+    const passwordStatus = req.staff.password_status;
+
+    if (passwordStatus !== 'temporary') {
+      return errorResponse(res, 400, "Password set up is only allowed for temporary accounts.");
+    }
+
+    if (!new_password || new_password.length < 6) {
+      return errorResponse(res, 400, "New password must be at least 6 characters long.");
+    }
+
+    await Staff.activateStaffPassword(staffId, new_password);
+
+    return successResponse(res, "Password set successfully. Your account is now active.", {}, 200, req);
+
+  } catch (error) {
+    console.error("Set Initial Password Error:", error);
+    return errorResponse(res, 500, "Failed to set password");
   }
 };
 
@@ -310,7 +376,7 @@ const refreshToken = async (req, res) => {
     if (decoded.type === 'company') {
       session = await findCompanySession(token);
     } else {
-      session = await findStaffSession(token);
+      session = await Staff.findStaffSession(token);
     }
 
     if (!session) {
@@ -321,7 +387,10 @@ const refreshToken = async (req, res) => {
     const payload = {
       id: decoded.id,
       type: decoded.type,
-      ...(decoded.type === 'company' ? { admin_email: decoded.admin_email } : { company_id: decoded.company_id, role: decoded.role })
+      ...(decoded.type === 'company'
+        ? { admin_email: decoded.admin_email }
+        : { company_id: decoded.company_id, role: decoded.role }
+      )
     };
 
     const newAccessToken = generateAccessToken(payload);
@@ -336,20 +405,50 @@ const refreshToken = async (req, res) => {
 
 const forgotPassword = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, company_id, user_type } = req.body;
 
     if (!email) return errorResponse(res, 400, "Email is required");
+    const trimmedEmail = email.trim().toLowerCase();
+    const type = user_type || 'company';
 
-    const company = await getCompanyByEmail(email);
-    if (!company) {
-      return errorResponse(res, 404, "Company not found");
+    if (type === 'staff' && !company_id) {
+      return errorResponse(res, 400, "Company ID is required for staff password reset");
     }
 
     const otp = generateOTP();
     const expiresAt = new Date(Date.now() + (process.env.OTP_EXPIRE_MINUTES || 10) * 60 * 1000);
 
-    await upsertTempSignup({ email: email.toLowerCase(), otp, expires_at: expiresAt });
-    await sendResetOTPEmail(email, otp);
+    if (type === 'staff') {
+      const staffExists = await pool.query(
+        "SELECT id FROM staff WHERE email = $1 AND company_id = $2",
+        [trimmedEmail, company_id]
+      );
+
+      if (staffExists.rows.length === 0) {
+        return errorResponse(res, 404, "Staff account not found in this company");
+      }
+
+      await upsertTempSignup({
+        email: trimmedEmail,
+        otp,
+        expires_at: expiresAt,
+        company_id: company_id,
+        user_type: 'staff'
+      });
+    } else {
+      const company = await getCompanyByEmail(trimmedEmail);
+      if (!company) return errorResponse(res, 404, "Company account not found");
+
+      await upsertTempSignup({
+        email: trimmedEmail,
+        otp,
+        expires_at: expiresAt,
+        company_id: company.id,
+        user_type: 'company'
+      });
+    }
+
+    await sendResetOTPEmail(trimmedEmail, otp);
 
     return successResponse(res, "Password reset OTP sent to email", {}, 200, req);
 
@@ -361,26 +460,37 @@ const forgotPassword = async (req, res) => {
 
 const resetPassword = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, otp, company_id, user_type } = req.body;
 
-    if (!email || !password) {
-      return errorResponse(res, 400, "Email and password are required");
+    if (!email || !password || !otp) {
+      return errorResponse(res, 400, "Missing required fields");
     }
 
-    const company = await getCompanyByEmail(email);
-    if (!company) {
-      return errorResponse(res, 404, "Company not found");
+    const trimmedEmail = email.trim().toLowerCase();
+    const type = user_type || 'company';
+
+    const companyToCheck = company_id || (type === 'company' ? (await getCompanyByEmail(trimmedEmail))?.id : null);
+
+    const tempSignupRes = await pool.query(
+      `SELECT * FROM temp_signups WHERE email = $1 AND user_type = $2 AND company_id = $3`,
+      [trimmedEmail, type, companyToCheck]
+    );
+    const tempSignup = tempSignupRes.rows[0];
+
+    if (!tempSignup || tempSignup.otp !== otp) {
+      return errorResponse(res, 400, "Invalid or expired OTP");
     }
 
-    const tempSignup = await getTempSignup(email.toLowerCase());
+    if (type === 'staff') {
+      const staffRes = await pool.query("SELECT id FROM staff WHERE email = $1 AND company_id = $2", [trimmedEmail, company_id]);
+      if (staffRes.rows.length === 0) return errorResponse(res, 404, "Staff not found");
 
-    if (!tempSignup || !tempSignup.is_verified) {
-      return errorResponse(res, 403, "Email not verified. Please verify OTP first.");
+      await Staff.activateStaffPassword(staffRes.rows[0].id, password);
+    } else {
+      await updateCompanyPassword(trimmedEmail, password);
     }
 
-    await updateCompanyPassword(email, password);
-
-    await deleteTempSignup(email);
+    await pool.query("DELETE FROM temp_signups WHERE email = $1 AND user_type = $2 AND company_id = $3", [trimmedEmail, type, tempSignup.company_id]);
 
     return successResponse(res, "Password reset successfully", {}, 200, req);
 
@@ -395,7 +505,7 @@ const getAvailablePackages = async (req, res) => {
     const packages = await getActivePackages();
 
     const availablePackages = packages.filter(p => {
-        return p.is_active;
+      return p.is_active;
     });
 
     return successResponse(res, "Available subscription packages retrieved successfully", {
@@ -454,10 +564,10 @@ const selectInitialSubscription = async (req, res) => {
       });
 
       await logSystemEvent({
-          company_id: companyId,
-          log_level: 'INFO',
-          log_category: 'SUBSCRIPTION',
-          message: `Free subscription selected and immediately activated: ${packageData.name}.`
+        company_id: companyId,
+        log_level: 'INFO',
+        log_category: 'SUBSCRIPTION',
+        message: `Free subscription selected and immediately activated: ${packageData.name}.`
       });
 
       return successResponse(res, "Free subscription activated successfully.", {
@@ -499,28 +609,28 @@ const selectInitialSubscription = async (req, res) => {
       await updateInvoice(newInvoice.id, { status: 'sent' });
 
       try {
-          await createNotification({
-              company_id: companyId,
-              super_admin_id: null,
-              title: 'NEW PAID SUBSCRIPTION REQUEST',
-              message: `Company ${company.company_name} selected ${packageData.name} (${invoiceData.currency} ${invoiceData.total_amount}). Invoice #${newInvoice.invoice_number} sent. Awaiting payment.`,
-              notification_type: 'payment_pending',
-              priority: 'high',
-              metadata: {
-                  invoice_id: newInvoice.id,
-                  package_id: package_id,
-                  company_name: company.company_name
-              }
-          });
+        await createNotification({
+          company_id: companyId,
+          super_admin_id: null,
+          title: 'NEW PAID SUBSCRIPTION REQUEST',
+          message: `Company ${company.company_name} selected ${packageData.name} (${invoiceData.currency} ${invoiceData.total_amount}). Invoice #${newInvoice.invoice_number} sent. Awaiting payment.`,
+          notification_type: 'payment_pending',
+          priority: 'high',
+          metadata: {
+            invoice_id: newInvoice.id,
+            package_id: package_id,
+            company_name: company.company_name
+          }
+        });
       } catch (e) {
-          console.error('Non-critical: Failed to send Super Admin notification:', e);
+        console.error('Non-critical: Failed to send Super Admin notification:', e);
       }
 
       await logSystemEvent({
-          company_id: companyId,
-          log_level: 'INFO',
-          log_category: 'SUBSCRIPTION',
-          message: `Paid subscription request initiated. Invoice #${newInvoice.invoice_number} sent. Status: pending.`
+        company_id: companyId,
+        log_level: 'INFO',
+        log_category: 'SUBSCRIPTION',
+        message: `Paid subscription request initiated. Invoice #${newInvoice.invoice_number} sent. Status: pending.`
       });
 
       return successResponse(res, "Paid subscription requested. Invoice sent. Awaiting admin payment approval.", {
@@ -581,8 +691,8 @@ const updateProfile = async (req, res) => {
       profileData.address = address;
     }
 
-     if (website !== undefined) {
-     profileData.website = website;
+    if (website !== undefined) {
+      profileData.website = website;
     }
 
 
@@ -679,7 +789,7 @@ const getProfile = async (req, res) => {
 
       const subscriptionEndDate = moment(company.subscription_end_date);
       const daysRemaining = subscriptionEndDate.isValid() && subscriptionEndDate.isAfter(moment())
-                           ? subscriptionEndDate.diff(moment(), 'days') : 0;
+        ? subscriptionEndDate.diff(moment(), 'days') : 0;
 
       const packageFeatures = company.features || [];
 
@@ -772,13 +882,13 @@ const changePassword = async (req, res) => {
       }
 
       if (!req.staff.is_first_login) {
-        const staff = await staffLoginModel(req.staff.email, current_password);
+        const staff = await Staff.staffLogin(req.staff.email, current_password, req.staff.company_id);
         if (!staff) {
           return errorResponse(res, 401, "Current password is incorrect");
         }
       }
 
-      const updatedStaff = await updateStaffPasswordModel(staffId, new_password);
+      const updatedStaff = await Staff.updateStaffPassword(staffId, new_password);
 
       return successResponse(res, "Password updated successfully", {
         is_first_login: updatedStaff.is_first_login
@@ -797,7 +907,7 @@ const logout = async (req, res) => {
     if (token) {
       await Promise.allSettled([
         deleteCompanySession(token),
-        deleteStaffSession(token)
+        Staff.deleteStaffSession(token)
       ]);
     }
 
@@ -934,6 +1044,8 @@ module.exports = {
   verifyOTP,
   setPassword,
   login,
+  checkEmail,
+  setInitialPassword,
   refreshToken,
   logout,
   getProfile,
