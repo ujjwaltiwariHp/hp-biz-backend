@@ -288,11 +288,19 @@ const invalidateSession = async (companyId) => {
   return true;
 };
 
-const upsertTempSignup = async ({ email, otp, expires_at }) => {
+// --- UPDATED OTP FUNCTIONS FOR COMPOSITE KEY SUPPORT ---
+
+const upsertTempSignup = async ({ email, otp, expires_at, company_id, user_type = 'company' }) => {
+  // CRITICAL FIX: Default company_id to 0 if null/undefined to satisfy NOT NULL PK
+  const safeCompanyId = company_id || 0;
+
   const query = `
-    INSERT INTO temp_signups (email, otp, otp_expires_at, attempt_count, last_attempt_at)
-    VALUES ($1, $2, $3, 1, CURRENT_TIMESTAMP)
-    ON CONFLICT (email) DO UPDATE SET
+    INSERT INTO temp_signups (
+      email, otp, otp_expires_at, company_id, user_type, attempt_count, last_attempt_at
+    )
+    VALUES ($1, $2, $3, $4, $5, 1, CURRENT_TIMESTAMP)
+    ON CONFLICT (email, company_id, user_type)
+    DO UPDATE SET
       otp = $2,
       otp_expires_at = $3,
       is_verified = FALSE,
@@ -300,22 +308,41 @@ const upsertTempSignup = async ({ email, otp, expires_at }) => {
       last_attempt_at = CURRENT_TIMESTAMP
     RETURNING *;
   `;
-  const { rows } = await pool.query(query, [email, otp, expires_at]);
+
+  const { rows } = await pool.query(query, [email, otp, expires_at, safeCompanyId, user_type]);
   return rows[0];
 };
 
-const getTempSignup = async (email) => {
-  const { rows } = await pool.query('SELECT * FROM temp_signups WHERE email = $1', [email]);
+const getTempSignup = async (email, company_id = null, user_type = 'company') => {
+  // CRITICAL FIX: Default to 0 for retrieval too
+  const safeCompanyId = company_id || 0;
+
+  let query = 'SELECT * FROM temp_signups WHERE email = $1 AND user_type = $2 AND company_id = $3';
+  const params = [email, user_type, safeCompanyId];
+
+  const { rows } = await pool.query(query, params);
   return rows[0];
 };
 
-const markTempSignupVerified = async (email) => {
-  await pool.query('UPDATE temp_signups SET is_verified = TRUE WHERE email = $1', [email]);
+const markTempSignupVerified = async (email, company_id = null, user_type = 'company') => {
+  const safeCompanyId = company_id || 0;
+
+  let query = 'UPDATE temp_signups SET is_verified = TRUE WHERE email = $1 AND user_type = $2 AND company_id = $3';
+  const params = [email, user_type, safeCompanyId];
+
+  await pool.query(query, params);
 };
 
-const deleteTempSignup = async (email) => {
-  await pool.query('DELETE FROM temp_signups WHERE email = $1', [email]);
+const deleteTempSignup = async (email, company_id = null, user_type = 'company') => {
+  const safeCompanyId = company_id || 0;
+
+  let query = 'DELETE FROM temp_signups WHERE email = $1 AND user_type = $2 AND company_id = $3';
+  const params = [email, user_type, safeCompanyId];
+
+  await pool.query(query, params);
 };
+
+// --- SESSION MANAGEMENT ---
 
 const createCompanySession = async (companyId, refreshToken, ip, userAgent) => {
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
