@@ -21,7 +21,7 @@ const getAllStaff = async (companyId) => {
 const getStaffById = async (id, companyId) => {
   const result = await pool.query(
     `SELECT s.id, s.company_id, s.first_name, s.last_name, s.email, s.phone,
-            s.designation, s.status, s.is_first_login,
+            s.designation, s.status, s.is_first_login, s.password_status,
             TO_CHAR(s.last_login AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as last_login,
             TO_CHAR(s.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
             TO_CHAR(s.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at,
@@ -35,7 +35,6 @@ const getStaffById = async (id, companyId) => {
   );
   return result.rows[0];
 };
-
 
 const createStaff = async (data) => {
   const {
@@ -52,19 +51,17 @@ const createStaff = async (data) => {
   const tempPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
   const password_hash = await bcrypt.hash(tempPassword, 12);
 
-  const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
-
   const result = await pool.query(
     `INSERT INTO staff
      (company_id, role_id, first_name, last_name, email, phone, password_hash,
-      designation, status, is_first_login, password_status, temp_password_expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, 'temporary', $10)
+      designation, status, is_first_login)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
      RETURNING id, company_id, first_name, last_name, email, phone, designation, status, is_first_login,
      TO_CHAR(last_login AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as last_login,
      TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
      TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at`,
     [company_id, role_id, first_name, last_name, email, phone, password_hash,
-     designation, status, expiresAt]
+     designation, status]
   );
 
   return {
@@ -172,58 +169,28 @@ const updateStaffStatus = async (id, status, companyId) => {
   return result.rows[0];
 };
 
-
-const staffLogin = async (email, password, companyId) => {
-  const query = `
-    SELECT s.id, s.company_id, s.first_name, s.last_name, s.email, s.phone,
-           s.designation, s.status, s.is_first_login, s.password_hash,
-           s.password_status, s.temp_password_expires_at,
-           TO_CHAR(s.last_login AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as last_login,
-           TO_CHAR(s.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
-           TO_CHAR(s.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at,
-           c.company_name, c.unique_company_id, r.role_name, r.permissions
-    FROM staff s
-    JOIN companies c ON s.company_id = c.id
-    LEFT JOIN roles r ON s.role_id = r.id
-    WHERE s.email = $1 AND s.company_id = $2 AND s.status = 'active'
-  `;
-
-  const result = await pool.query(query, [email, companyId]);
+const staffLogin = async (email, password) => {
+  const result = await pool.query(
+    `SELECT s.id, s.company_id, s.first_name, s.last_name, s.email, s.phone, s.designation, s.status, s.is_first_login, s.password_hash,
+            TO_CHAR(s.last_login AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as last_login,
+            TO_CHAR(s.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
+            TO_CHAR(s.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at,
+            c.company_name, c.unique_company_id, r.role_name, r.permissions
+     FROM staff s
+     JOIN companies c ON s.company_id = c.id
+     LEFT JOIN roles r ON s.role_id = r.id
+    WHERE s.email = $1 AND s.status = 'active' AND c.email_verified = true`,
+    [email]
+  );
 
   if (!result.rows[0]) return null;
 
   const staff = result.rows[0];
-
-  if (staff.password_status === 'temporary' && staff.temp_password_expires_at) {
-    if (new Date() > new Date(staff.temp_password_expires_at)) {
-      throw new Error("Temporary password has expired. Please contact your administrator.");
-    }
-  }
-
   const isValidPassword = await bcrypt.compare(password, staff.password_hash);
 
   if (!isValidPassword) return null;
 
   return staff;
-};
-
-const activateStaffPassword = async (staffId, newPassword) => {
-  const password_hash = await bcrypt.hash(newPassword, 12);
-
-  const result = await pool.query(
-    `UPDATE staff
-     SET password_hash = $1,
-         password_status = 'active',
-         temp_password_expires_at = NULL,
-         last_password_change_at = CURRENT_TIMESTAMP,
-         is_first_login = false,
-         updated_at = CURRENT_TIMESTAMP
-     WHERE id = $2
-     RETURNING id, email, password_status`,
-    [password_hash, staffId]
-  );
-
-  return result.rows[0];
 };
 
 const updateStaffPassword = async (staffId, newPassword) => {
@@ -384,7 +351,6 @@ module.exports = {
   deleteStaff,
   updateStaffStatus,
   staffLogin,
-  activateStaffPassword,
   updateStaffPassword,
   getCompanyRoles,
   getStaffPerformance,
