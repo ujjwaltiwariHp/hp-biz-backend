@@ -21,7 +21,7 @@ const getAllStaff = async (companyId) => {
 const getStaffById = async (id, companyId) => {
   const result = await pool.query(
     `SELECT s.id, s.company_id, s.first_name, s.last_name, s.email, s.phone,
-            s.designation, s.status, s.is_first_login,
+            s.designation, s.status, s.is_first_login, s.password_status, -- Ensure this is here
             TO_CHAR(s.last_login AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as last_login,
             TO_CHAR(s.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
             TO_CHAR(s.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at,
@@ -35,7 +35,6 @@ const getStaffById = async (id, companyId) => {
   );
   return result.rows[0];
 };
-
 
 const createStaff = async (data) => {
   const {
@@ -171,7 +170,6 @@ const updateStaffStatus = async (id, status, companyId) => {
   );
   return result.rows[0];
 };
-
 
 const staffLogin = async (email, password, companyId) => {
   const query = `
@@ -321,7 +319,6 @@ const getCurrentStaffCount = async (companyId) => {
   );
   return result.rows[0]?.count || 0;
 };
-
 
 const getDesignationOptions = async () => {
   const designations = [
