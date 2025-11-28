@@ -38,7 +38,10 @@ const getStaffById = async (req, res) => {
 
 const createStaff = async (req, res) => {
   try {
-    const { first_name, last_name, email, phone, designation, status, role_id } = req.body;
+    const {
+        first_name, last_name, email, phone, designation, status, role_id,
+        address, nationality, employee_id, alternate_phone, id_proof_type, id_proof_number, profile_picture
+    } = req.body;
     const company_id = req.company.id;
 
     if (!first_name || !last_name || !email) {
@@ -77,7 +80,14 @@ const createStaff = async (req, res) => {
       phone: phone ? phone.trim() : null,
       designation: designation ? designation.trim() : null,
       status: status || 'active',
-      role_id: parseInt(role_id)
+      role_id: parseInt(role_id),
+      address: address ? address.trim() : null,
+      nationality: nationality ? nationality.trim() : null,
+      employee_id: employee_id ? employee_id.trim() : null,
+      alternate_phone: alternate_phone ? alternate_phone.trim() : null,
+      id_proof_type: id_proof_type ? id_proof_type.trim() : null,
+      id_proof_number: id_proof_number ? id_proof_number.trim() : null,
+      profile_picture: profile_picture || null
     });
 
     const staffDetails = await Staff.getStaffById(result.staff.id, company_id);
@@ -98,7 +108,14 @@ const createStaff = async (req, res) => {
         is_first_login: staffDetails.is_first_login,
         created_at: staffDetails.created_at,
         role_name: staffDetails.role_name,
-        role_id: staffDetails.role_id
+        role_id: staffDetails.role_id,
+        address: staffDetails.address,
+        nationality: staffDetails.nationality,
+        employee_id: staffDetails.employee_id,
+        alternate_phone: staffDetails.alternate_phone,
+        id_proof_type: staffDetails.id_proof_type,
+        id_proof_number: staffDetails.id_proof_number,
+        profile_picture: staffDetails.profile_picture
       }
     };
 
@@ -112,6 +129,9 @@ const createStaff = async (req, res) => {
       req
     );
   } catch (err) {
+    if (err.message && err.message.includes("employee_id")) {
+        return errorResponse(res, 409, "Employee ID already exists in this company.");
+    }
     return errorResponse(res, 500, "Failed to create staff or send welcome email. " + err.message);
   }
 };
@@ -152,6 +172,13 @@ const updateStaff = async (req, res) => {
     if (otherData.designation) otherData.designation = otherData.designation.trim();
     if (status) otherData.status = status;
 
+    if (otherData.address) otherData.address = otherData.address.trim();
+    if (otherData.nationality) otherData.nationality = otherData.nationality.trim();
+    if (otherData.employee_id) otherData.employee_id = otherData.employee_id.trim();
+    if (otherData.alternate_phone) otherData.alternate_phone = otherData.alternate_phone.trim();
+    if (otherData.id_proof_type) otherData.id_proof_type = otherData.id_proof_type.trim();
+    if (otherData.id_proof_number) otherData.id_proof_number = otherData.id_proof_number.trim();
+
     const updatedStaff = await Staff.updateStaff(req.params.id, otherData, companyId);
     if (!updatedStaff) return errorResponse(res, 404, "Staff not found or unauthorized");
     const staffWithRole = await Staff.getStaffById(req.params.id, companyId);
@@ -162,6 +189,9 @@ const updateStaff = async (req, res) => {
   } catch (err) {
     if (err.message === "Cannot deactivate the last admin user") {
       return errorResponse(res, 403, err.message);
+    }
+    if (err.message && err.message.includes("employee_id")) {
+        return errorResponse(res, 409, "Employee ID already exists in this company.");
     }
     return errorResponse(res, 500, err.message);
   }
