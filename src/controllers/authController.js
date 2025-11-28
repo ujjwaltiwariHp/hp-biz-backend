@@ -105,7 +105,6 @@ const signup = async (req, res) => {
     const expiresAt = new Date(Date.now() + (process.env.OTP_EXPIRE_MINUTES || 10) * 60 * 1000);
 
     try {
-      // FIX: Explicitly pass company_id: 0 for new signups
       await upsertTempSignup({
         email: trimmedEmail,
         otp,
@@ -128,9 +127,10 @@ const signup = async (req, res) => {
   }
 };
 
+
 const verifyOTP = async (req, res) => {
   try {
-    const { email, otp } = req.body;
+    const { email, otp, company_id, user_type } = req.body;
 
     if (!email || !otp) {
       return errorResponse(res, 400, "Email and OTP are required");
@@ -141,12 +141,42 @@ const verifyOTP = async (req, res) => {
     }
 
     const trimmedEmail = email.trim().toLowerCase();
+    const type = user_type || 'company';
 
-    // FIX: Look for company_id: 0 (new signup)
-    const tempSignup = await getTempSignup(trimmedEmail, 0, 'company');
+    let targetCompanyId = company_id;
+
+    if (type === 'staff' && !targetCompanyId) {
+        const result = await pool.query(
+            `SELECT company_id FROM temp_signups
+             WHERE email = $1 AND user_type = 'staff'
+             ORDER BY created_at DESC LIMIT 1`,
+            [trimmedEmail]
+        );
+
+        if (result.rows.length > 0) {
+            targetCompanyId = result.rows[0].company_id;
+        } else {
+            return errorResponse(res, 400, "Company ID is required for staff verification");
+        }
+    }
+
+    if (type === 'company' && !targetCompanyId) {
+        const company = await getCompanyByEmail(trimmedEmail);
+        if (company) {
+            targetCompanyId = company.id;
+        } else {
+            targetCompanyId = 0;
+        }
+    }
+
+    if (targetCompanyId === undefined || targetCompanyId === null) {
+        targetCompanyId = 0;
+    }
+
+    const tempSignup = await getTempSignup(trimmedEmail, targetCompanyId, type);
 
     if (!tempSignup) {
-      return errorResponse(res, 400, "No signup request found. Please signup first.");
+      return errorResponse(res, 400, "Invalid OTP or session expired. Please try again.");
     }
 
     if (tempSignup.otp !== otp) {
@@ -157,9 +187,13 @@ const verifyOTP = async (req, res) => {
       return errorResponse(res, 400, "OTP Expired");
     }
 
-    await markTempSignupVerified(trimmedEmail, 0, 'company');
+    await markTempSignupVerified(trimmedEmail, targetCompanyId, type);
 
-    return successResponse(res, "OTP verified successfully. Please set your password.", {}, 200, req);
+    return successResponse(res, "OTP verified successfully.", {
+        verified_email: trimmedEmail,
+        company_id: targetCompanyId,
+        user_type: type
+    }, 200, req);
 
   } catch (error) {
     console.error("Verify OTP Error:", error);
@@ -181,7 +215,6 @@ const setPassword = async (req, res) => {
 
     const trimmedEmail = email.trim().toLowerCase();
 
-    // FIX: Look for company_id: 0 (new signup)
     const tempSignup = await getTempSignup(trimmedEmail, 0, 'company');
 
     if (!tempSignup || !tempSignup.is_verified) {
@@ -200,7 +233,6 @@ const setPassword = async (req, res) => {
     await createDefaultLeadSources(company.id);
     await createDefaultLeadStatuses(company.id);
 
-    // FIX: Delete the specific temp signup
     await deleteTempSignup(trimmedEmail, 0, 'company');
 
     return successResponse(res, "Account created successfully. You can now login.", {}, 200, req);
@@ -415,38 +447,36 @@ const forgotPassword = async (req, res) => {
       return errorResponse(res, 400, "Company ID is required for staff password reset");
     }
 
+    if (type === 'staff') {
+        const staffExists = await pool.query(
+            "SELECT id FROM staff WHERE email = $1 AND company_id = $2 AND status != 'deleted'",
+            [trimmedEmail, company_id]
+        );
+        if (staffExists.rows.length === 0) return errorResponse(res, 404, "Staff account not found in this company");
+    } else {
+        const company = await getCompanyByEmail(trimmedEmail);
+        if (!company) return errorResponse(res, 404, "Company account not found");
+        if (company_id && company.id != company_id) {
+             return errorResponse(res, 404, "Company account not found for this specific ID");
+        }
+    }
+
     const otp = generateOTP();
     const expiresAt = new Date(Date.now() + (process.env.OTP_EXPIRE_MINUTES || 10) * 60 * 1000);
 
-    if (type === 'staff') {
-      const staffExists = await pool.query(
-        "SELECT id FROM staff WHERE email = $1 AND company_id = $2",
-        [trimmedEmail, company_id]
-      );
-
-      if (staffExists.rows.length === 0) {
-        return errorResponse(res, 404, "Staff account not found in this company");
-      }
-
-      await upsertTempSignup({
-        email: trimmedEmail,
-        otp,
-        expires_at: expiresAt,
-        company_id: company_id,
-        user_type: 'staff'
-      });
-    } else {
-      const company = await getCompanyByEmail(trimmedEmail);
-      if (!company) return errorResponse(res, 404, "Company account not found");
-
-      await upsertTempSignup({
-        email: trimmedEmail,
-        otp,
-        expires_at: expiresAt,
-        company_id: company.id,
-        user_type: 'company'
-      });
+    let targetCompanyId = company_id;
+    if (type === 'company' && !targetCompanyId) {
+        const company = await getCompanyByEmail(trimmedEmail);
+        targetCompanyId = company.id;
     }
+
+    await upsertTempSignup({
+      email: trimmedEmail,
+      otp,
+      expires_at: expiresAt,
+      company_id: targetCompanyId,
+      user_type: type
+    });
 
     await sendResetOTPEmail(trimmedEmail, otp);
 
@@ -460,29 +490,51 @@ const forgotPassword = async (req, res) => {
 
 const resetPassword = async (req, res) => {
   try {
-    const { email, password, otp, company_id, user_type } = req.body;
+    const { email, password, company_id, user_type } = req.body;
 
-    if (!email || !password || !otp) {
-      return errorResponse(res, 400, "Missing required fields");
+    if (!email || !password) {
+      return errorResponse(res, 400, "Email and new password are required");
     }
 
     const trimmedEmail = email.trim().toLowerCase();
     const type = user_type || 'company';
 
-    const companyToCheck = company_id || (type === 'company' ? (await getCompanyByEmail(trimmedEmail))?.id : null);
+    let targetCompanyId = company_id;
+
+    if (type === 'staff' && !targetCompanyId) {
+         const result = await pool.query(
+            `SELECT company_id FROM temp_signups
+             WHERE email = $1 AND user_type = 'staff' AND is_verified = TRUE
+             ORDER BY created_at DESC LIMIT 1`,
+            [trimmedEmail]
+        );
+        if (result.rows.length > 0) targetCompanyId = result.rows[0].company_id;
+        else return errorResponse(res, 400, "Missing Company ID context");
+    }
+
+    if (type === 'company' && !targetCompanyId) {
+        const company = await getCompanyByEmail(trimmedEmail);
+        targetCompanyId = company ? company.id : 0;
+    }
+
+    if (targetCompanyId === undefined || targetCompanyId === null) targetCompanyId = 0;
 
     const tempSignupRes = await pool.query(
       `SELECT * FROM temp_signups WHERE email = $1 AND user_type = $2 AND company_id = $3`,
-      [trimmedEmail, type, companyToCheck]
+      [trimmedEmail, type, targetCompanyId]
     );
     const tempSignup = tempSignupRes.rows[0];
 
-    if (!tempSignup || tempSignup.otp !== otp) {
-      return errorResponse(res, 400, "Invalid or expired OTP");
+    if (!tempSignup) {
+        return errorResponse(res, 400, "Session expired. Please request a new OTP.");
+    }
+
+    if (tempSignup.is_verified !== true) {
+        return errorResponse(res, 403, "OTP not verified. Please verify OTP first.");
     }
 
     if (type === 'staff') {
-      const staffRes = await pool.query("SELECT id FROM staff WHERE email = $1 AND company_id = $2", [trimmedEmail, company_id]);
+      const staffRes = await pool.query("SELECT id FROM staff WHERE email = $1 AND company_id = $2", [trimmedEmail, targetCompanyId]);
       if (staffRes.rows.length === 0) return errorResponse(res, 404, "Staff not found");
 
       await Staff.activateStaffPassword(staffRes.rows[0].id, password);
@@ -490,9 +542,9 @@ const resetPassword = async (req, res) => {
       await updateCompanyPassword(trimmedEmail, password);
     }
 
-    await pool.query("DELETE FROM temp_signups WHERE email = $1 AND user_type = $2 AND company_id = $3", [trimmedEmail, type, tempSignup.company_id]);
+    await pool.query("DELETE FROM temp_signups WHERE email = $1 AND user_type = $2 AND company_id = $3", [trimmedEmail, type, targetCompanyId]);
 
-    return successResponse(res, "Password reset successfully", {}, 200, req);
+    return successResponse(res, "Password reset successfully.", {}, 200, req);
 
   } catch (error) {
     console.error("Reset Password Error:", error);

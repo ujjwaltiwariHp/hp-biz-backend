@@ -10,7 +10,8 @@ const {
   updateStaff,
   updateStaffStatus,
   deleteStaff,
-  getStaffPerformance
+  getStaffPerformance,
+  updateMyPassword
 } = require('../controllers/staffController');
 
 const { authenticateAny, requirePermission } = require('../middleware/auth');
@@ -23,11 +24,12 @@ const {
     checkStaffLimit
 } = require('../middleware/subscriptionMiddleware');
 
+const { uploadProfilePicture, compressProfilePicture } = require('../middleware/imageUpload');
+
 const router = express.Router();
 
 const subscriptionChain = [authenticateAny, attachTimezone, getCompanySubscriptionAndUsage, checkSubscriptionActive];
 
-// Fetching Lists/Stats/Individual Staff (GET) - Added Subscription Check
 router.get('/', ...subscriptionChain, requirePermission('user_management'), getAllStaff);
 router.get('/roles', ...subscriptionChain, getCompanyRoles);
 router.get('/designations', ...subscriptionChain, getDesignationOptions);
@@ -36,17 +38,28 @@ router.get('/stats', ...subscriptionChain, requirePermission('user_management'),
 router.get('/:id', ...subscriptionChain, requirePermission('user_management'), getStaffById);
 router.get('/:id/performance', ...subscriptionChain, requirePermission('user_management'), getStaffPerformance);
 
-// Creation/Modification (POST/PUT) - Added Subscription and Limit Checks
 router.post('/create',
     ...subscriptionChain,
     requirePermission('user_management'),
     checkStaffLimit,
+    uploadProfilePicture,
+    compressProfilePicture,
     validateStaffData,
     createStaff
 );
-router.put('/:id', ...subscriptionChain, requirePermission('user_management'), updateStaff);
+
+router.put('/:id',
+    ...subscriptionChain,
+    requirePermission('user_management'),
+    uploadProfilePicture,
+    compressProfilePicture,
+    updateStaff
+);
+
 router.put('/status/:id', ...subscriptionChain, requirePermission('user_management'), updateStaffStatus);
 
 router.delete('/delete/:id', ...subscriptionChain, requirePermission('user_management'), logActivity, deleteStaff);
+
+router.put('/update-password', authenticateAny, attachTimezone, updateMyPassword);
 
 module.exports = router;

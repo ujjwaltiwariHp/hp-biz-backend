@@ -4,7 +4,7 @@ const bcrypt = require('bcryptjs');
 const getAllStaff = async (companyId) => {
   const result = await pool.query(
     `SELECT s.id, s.first_name, s.last_name, s.email, s.phone, s.designation,
-            s.status, s.is_first_login,
+            s.status, s.is_first_login, s.profile_picture,
             TO_CHAR(s.last_login AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as last_login,
             TO_CHAR(s.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
             TO_CHAR(s.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at,
@@ -21,7 +21,9 @@ const getAllStaff = async (companyId) => {
 const getStaffById = async (id, companyId) => {
   const result = await pool.query(
     `SELECT s.id, s.company_id, s.first_name, s.last_name, s.email, s.phone,
-            s.designation, s.status, s.is_first_login, s.password_status, -- Ensure this is here
+            s.designation, s.status, s.is_first_login, s.password_status,
+            s.address, s.nationality, s.employee_id, s.alternate_phone,
+            s.id_proof_type, s.id_proof_number, s.profile_picture,
             TO_CHAR(s.last_login AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as last_login,
             TO_CHAR(s.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
             TO_CHAR(s.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at,
@@ -46,6 +48,13 @@ const createStaff = async (data) => {
     designation,
     role_id,
     status,
+    address,
+    nationality,
+    employee_id,
+    alternate_phone,
+    id_proof_type,
+    id_proof_number,
+    profile_picture
   } = data;
 
   const tempPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
@@ -56,14 +65,16 @@ const createStaff = async (data) => {
   const result = await pool.query(
     `INSERT INTO staff
      (company_id, role_id, first_name, last_name, email, phone, password_hash,
-      designation, status, is_first_login, password_status, temp_password_expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, 'temporary', $10)
+      designation, status, is_first_login, password_status, temp_password_expires_at,
+      address, nationality, employee_id, alternate_phone, id_proof_type, id_proof_number, profile_picture)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, 'temporary', $10, $11, $12, $13, $14, $15, $16, $17)
      RETURNING id, company_id, first_name, last_name, email, phone, designation, status, is_first_login,
+     address, nationality, employee_id, alternate_phone, id_proof_type, id_proof_number, profile_picture,
      TO_CHAR(last_login AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as last_login,
      TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
      TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at`,
     [company_id, role_id, first_name, last_name, email, phone, password_hash,
-     designation, status, expiresAt]
+     designation, status, expiresAt, address, nationality, employee_id, alternate_phone, id_proof_type, id_proof_number, profile_picture]
   );
 
   return {
@@ -73,7 +84,10 @@ const createStaff = async (data) => {
 };
 
 const updateStaff = async (id, data, companyId) => {
-  const allowedFields = ['first_name', 'last_name', 'email', 'phone', 'designation', 'role_id', 'status', 'last_login'];
+  const allowedFields = [
+    'first_name', 'last_name', 'email', 'phone', 'designation', 'role_id', 'status', 'last_login',
+    'address', 'nationality', 'employee_id', 'alternate_phone', 'id_proof_type', 'id_proof_number', 'profile_picture'
+  ];
   const updateFields = [];
   const values = [];
   let paramCount = 1;
@@ -97,6 +111,7 @@ const updateStaff = async (id, data, companyId) => {
 
   const query = `UPDATE staff SET ${updateFields.join(', ')} ${whereClause}
     RETURNING id, company_id, first_name, last_name, email, phone, designation, status, is_first_login,
+    address, nationality, employee_id, alternate_phone, id_proof_type, id_proof_number, profile_picture,
     TO_CHAR(last_login AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as last_login,
     TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
     TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at`;
@@ -175,7 +190,7 @@ const staffLogin = async (email, password, companyId) => {
   const query = `
     SELECT s.id, s.company_id, s.first_name, s.last_name, s.email, s.phone,
            s.designation, s.status, s.is_first_login, s.password_hash,
-           s.password_status, s.temp_password_expires_at,
+           s.password_status, s.temp_password_expires_at, s.profile_picture,
            TO_CHAR(s.last_login AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as last_login,
            TO_CHAR(s.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
            TO_CHAR(s.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as updated_at,
