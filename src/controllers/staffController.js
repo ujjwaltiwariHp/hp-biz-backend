@@ -300,6 +300,9 @@ const deleteStaff = async (req, res) => {
     if (err.message === "Cannot delete the last admin user") {
       return errorResponse(res, 403, err.message);
     }
+    if (err.message.startsWith("Cannot delete staff with assigned leads")) {
+      return errorResponse(res, 403, err.message);
+    }
     return errorResponse(res, 500, err.message);
   }
 };
