@@ -782,8 +782,8 @@ const getLeadHistory = async (req, res) => {
     const companyId = req.company.id;
     const leadId = req.params.id;
 
-    const response = await Lead.getLeadHistoryComplete(leadId, companyId);
-    return successResponse(res, "Lead history fetched successfully", response, 200, req);
+    const response = await Lead.getLeadHistoryWithTimeline(leadId, companyId);
+    return successResponse(res, "Lead timeline fetched successfully", response, 200, req);
   } catch (err) {
     if (err.message === "Lead not found or unauthorized") {
       return errorResponse(res, 404, err.message);

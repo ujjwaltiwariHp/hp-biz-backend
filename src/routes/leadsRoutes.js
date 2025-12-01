@@ -96,7 +96,7 @@ router.put('/update/status/:id', ...permissionChain, updateLeadStatus);
 router.delete('/delete/:id', ...permissionChain, logActivity, deleteLead);
 router.get('/search', ...permissionChain, searchLeads);
 
-router.get('/assignment-history', ...permissionChain, getLeadAssignmentHistory);
+router.get('/:id/assignment-history', ...permissionChain, getLeadAssignmentHistory);
 
 router.get('/tags', ...subscriptionChain, getLeadTags);
 router.get('/tags/:id', ...subscriptionChain, getLeadTagById);

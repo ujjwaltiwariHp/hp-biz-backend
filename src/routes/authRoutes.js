@@ -36,6 +36,7 @@ const {
 const { attachTimezone } = require('../middleware/timezoneMiddleware');
 const { logActivity } = require('../middleware/loggingMiddleware');
 const { getCompanySubscriptionAndUsage } = require('../middleware/subscriptionMiddleware');
+const { uploadProfilePicture, compressProfilePicture } = require('../middleware/imageUpload');
 
 const router = express.Router();
 
@@ -90,7 +91,7 @@ router.put('/change-password', authenticateAny, attachTimezone, (req, res, next)
 }, changePassword);
 
 router.get('/profile', authenticateAny, attachTimezone, getProfile);
-router.put('/update-profile', authenticate, attachTimezone, updateProfile);
+router.put('/update-profile', authenticate, attachTimezone,uploadProfilePicture, compressProfilePicture, updateProfile);
 
 router.get('/packages', authenticate, attachTimezone, getAvailablePackages);
 router.post('/select-subscription', authenticate, attachTimezone, getCompanySubscriptionAndUsage, selectInitialSubscription);
