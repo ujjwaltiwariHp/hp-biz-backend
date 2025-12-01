@@ -196,6 +196,97 @@ const updateStaff = async (req, res) => {
     return errorResponse(res, 500, err.message);
   }
 };
+
+const getMyProfile = async (req, res) => {
+  try {
+    if (req.userType !== 'staff' || !req.staff) {
+      return errorResponse(res, 403, "Only staff members can view their own profile.");
+    }
+
+    const staffId = req.staff.id;
+    const companyId = req.company.id;
+    const staff = await Staff.getStaffById(staffId, companyId);
+
+    if (!staff) {
+      return errorResponse(res, 404, "Profile not found.");
+    }
+
+    return successResponse(res, "My profile fetched successfully", staff, 200, req);
+
+  } catch (err) {
+    console.error("Get My Profile Error:", err);
+    return errorResponse(res, 500, err.message);
+  }
+};
+
+const updateMyProfile = async (req, res) => {
+  try {
+    if (req.userType !== 'staff' || !req.staff) {
+      return errorResponse(res, 403, "Only staff members can update their own profile.");
+    }
+
+    const staffId = req.staff.id;
+    const companyId = req.company.id;
+
+    const {
+      first_name,
+      last_name,
+      email,
+      phone,
+      designation,
+      address,
+      nationality,
+      alternate_phone,
+      id_proof_type,
+      id_proof_number,
+      profile_picture
+    } = req.body || {};
+
+    const updateData = {};
+
+    if (first_name) updateData.first_name = first_name.trim();
+    if (last_name) updateData.last_name = last_name.trim();
+    if (phone) updateData.phone = phone.trim();
+    if (designation) updateData.designation = designation.trim();
+    if (address) updateData.address = address.trim();
+    if (nationality) updateData.nationality = nationality.trim();
+    if (alternate_phone) updateData.alternate_phone = alternate_phone.trim();
+    if (id_proof_type) updateData.id_proof_type = id_proof_type.trim();
+    if (id_proof_number) updateData.id_proof_number = id_proof_number.trim();
+    if (profile_picture) updateData.profile_picture = profile_picture;
+
+    if (email) {
+      const trimmedEmail = email.trim().toLowerCase();
+      if (trimmedEmail !== req.staff.email) {
+        const isUnique = await Staff.isEmailUnique(trimmedEmail, companyId, staffId);
+        if (!isUnique) {
+          return errorResponse(res, 409, "This email is already in use by another staff member.");
+        }
+        updateData.email = trimmedEmail;
+      }
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return errorResponse(res, 400, "No valid fields provided for update. Ensure Content-Type is set correctly.");
+    }
+
+
+    const updatedStaff = await Staff.updateStaff(staffId, updateData, companyId);
+
+    if (!updatedStaff) {
+      return errorResponse(res, 500, "Failed to update profile.");
+    }
+
+    sseService.publish(`c_${companyId}`, 'staff_list_refresh', { action: 'updated', staffId });
+
+    return successResponse(res, "Profile updated successfully", updatedStaff, 200, req);
+
+  } catch (err) {
+    console.error("Update My Profile Error:", err);
+    return errorResponse(res, 500, err.message);
+  }
+};
+
 const deleteStaff = async (req, res) => {
   try {
     const companyId = req.company.id;
@@ -307,6 +398,8 @@ module.exports = {
   getStaffById,
   createStaff,
   updateStaff,
+  updateMyProfile,
+  getMyProfile,
   deleteStaff,
   updateStaffStatus,
   getStaffPerformance,

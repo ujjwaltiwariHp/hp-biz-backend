@@ -11,7 +11,9 @@ const {
   updateStaffStatus,
   deleteStaff,
   getStaffPerformance,
-  updateMyPassword
+  updateMyPassword,
+  updateMyProfile,
+  getMyProfile
 } = require('../controllers/staffController');
 
 const { authenticateAny, requirePermission } = require('../middleware/auth');
@@ -35,6 +37,13 @@ router.get('/roles', ...subscriptionChain, getCompanyRoles);
 router.get('/designations', ...subscriptionChain, getDesignationOptions);
 router.get('/statuses', ...subscriptionChain, getStatusOptions);
 router.get('/stats', ...subscriptionChain, requirePermission('user_management'), getStaffStats);
+
+// Staff Profile Routes (Must be before /:id)
+router.get('/profileByStaff', authenticateAny, attachTimezone, getMyProfile);
+router.put('/update-profile', authenticateAny, attachTimezone, uploadProfilePicture, compressProfilePicture, updateMyProfile);
+router.put('/update-password', authenticateAny, attachTimezone, updateMyPassword);
+
+// Specific Staff Operations (Admin/Manager Level)
 router.get('/:id', ...subscriptionChain, requirePermission('user_management'), getStaffById);
 router.get('/:id/performance', ...subscriptionChain, requirePermission('user_management'), getStaffPerformance);
 
@@ -59,7 +68,5 @@ router.put('/:id',
 router.put('/status/:id', ...subscriptionChain, requirePermission('user_management'), updateStaffStatus);
 
 router.delete('/delete/:id', ...subscriptionChain, requirePermission('user_management'), logActivity, deleteStaff);
-
-router.put('/update-password', authenticateAny, attachTimezone, updateMyPassword);
 
 module.exports = router;
