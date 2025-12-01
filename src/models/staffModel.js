@@ -1,6 +1,7 @@
 const pool = require("../config/database");
 const bcrypt = require('bcryptjs');
 
+
 const getAllStaff = async (companyId) => {
   const result = await pool.query(
     `SELECT s.id, s.first_name, s.last_name, s.email, s.phone, s.designation,
@@ -130,6 +131,21 @@ const deleteStaff = async (id, companyId) => {
 
   if (!staffCheck.rows[0]) {
     return false;
+  }
+
+  const assignedLeadsCheck = await pool.query(
+    `SELECT COUNT(l.id)::integer as active_leads_count
+     FROM leads l
+     LEFT JOIN lead_statuses ls ON l.status_id = ls.id
+     WHERE l.assigned_to = $1 AND l.company_id = $2
+       AND (ls.is_final IS FALSE OR ls.is_final IS NULL)`,
+    [id, companyId]
+  );
+
+  const activeLeadsCount = assignedLeadsCheck.rows[0]?.active_leads_count || 0;
+
+  if (activeLeadsCount > 0) {
+    throw new Error(`Cannot delete staff with ${activeLeadsCount} active assigned leads. Please transfer leads first.`);
   }
 
   if (staffCheck.rows[0].role_name === 'Admin') {

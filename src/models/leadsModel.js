@@ -1,4 +1,5 @@
 const pool = require("../config/database");
+const NotificationService = require('../services/notificationService');
 const { pipeline } = require('stream');
 const { from: copyFrom } = require('pg-copy-streams');
 const { Readable } = require('stream');
@@ -1532,6 +1533,91 @@ const createDefaultLeadStatuses = async (companyId) => {
   }
 };
 
+const transferLead = async (leadId, newStaffId, transferredBy, companyId) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const currentLeadResult = await client.query(
+      `SELECT assigned_to FROM leads WHERE id = $1 AND company_id = $2 FOR UPDATE`,
+      [leadId, companyId]
+    );
+
+    if (currentLeadResult.rows.length === 0) {
+      throw new Error("Lead not found or unauthorized for this company.");
+    }
+
+    const oldStaffId = currentLeadResult.rows[0].assigned_to;
+    const oldStaffIdValue = oldStaffId !== null ? oldStaffId.toString() : 'None';
+
+    const staffIdsToFetch = [oldStaffId, newStaffId].filter(id => id !== null && id !== undefined);
+
+    const staffNamesResult = await client.query(
+      `SELECT id, first_name, last_name FROM staff WHERE id = ANY($1)`,
+      [staffIdsToFetch]
+    );
+
+    let oldStaffName = 'Unassigned';
+    if (oldStaffId !== null) {
+      const oldStaff = staffNamesResult.rows.find(s => s.id === oldStaffId);
+      oldStaffName = oldStaff ? `${oldStaff.first_name} ${oldStaff.last_name}` : `ID: ${oldStaffIdValue}`;
+    }
+
+    const newStaff = staffNamesResult.rows.find(s => s.id === newStaffId);
+    if (!newStaff) {
+      throw new Error("New staff member not found or inactive.");
+    }
+    const newStaffName = `${newStaff.first_name} ${newStaff.last_name}`;
+
+    const updateLeadQuery = `
+      UPDATE leads
+      SET assigned_to = $1, assigned_by = $2, assigned_by_type = 'staff',
+          assigned_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $3 AND company_id = $4
+      RETURNING id, assigned_to, assigned_at
+    `;
+
+    const updateLeadResult = await client.query(updateLeadQuery, [
+      newStaffId,
+      transferredBy,
+      leadId,
+      companyId
+    ]);
+
+    const logActivityQuery = `
+      INSERT INTO lead_activities (lead_id, staff_id, activity_type, old_value, new_value, description)
+      VALUES ($1, $2, 'lead_transfer', $3, $4, $5)
+      RETURNING id
+    `;
+    await client.query(logActivityQuery, [
+      leadId,
+      transferredBy,
+      oldStaffName,
+      newStaffName,
+      `Lead transferred from ${oldStaffName} to ${newStaffName}`
+    ]);
+
+    await client.query('COMMIT');
+
+    NotificationService.createLeadAssignmentNotification(
+        leadId,
+        newStaffId,
+        transferredBy,
+        companyId
+    ).catch(err => {
+        console.error("Non-critical: Failed to send transfer notification:", err);
+    });
+
+    return updateLeadResult.rows[0];
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
 
 module.exports = {
   createLead,
@@ -1591,5 +1677,6 @@ module.exports = {
   getCustomFieldsForLead,
   createDefaultLeadSources,
   createDefaultLeadStatuses,
+  transferLead
 
 };

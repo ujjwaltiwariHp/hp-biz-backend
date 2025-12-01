@@ -1260,6 +1260,63 @@ const downloadSampleCsv = async (req, res) => {
   }
 };
 
+const transferLeadController = async (req, res) => {
+  try {
+    if (req.userType !== 'staff' || !req.staff || !req.company) {
+        return errorResponse(res, 403, "Staff authentication is required for lead transfer.");
+    }
+
+    const companyId = req.company.id;
+    const transferredByStaffId = req.staff.id;
+
+    const { lead_id, new_staff_id } = req.body;
+
+    if (!lead_id || !new_staff_id) {
+      return errorResponse(res, 400, "Lead ID and new Staff ID are required for transfer.");
+    }
+
+    if (parseInt(transferredByStaffId) === parseInt(new_staff_id)) {
+        return errorResponse(res, 400, "Cannot transfer a lead to yourself. Please choose another staff member.");
+    }
+    const transferResult = await Lead.transferLead(
+      parseInt(lead_id),
+      parseInt(new_staff_id),
+      transferredByStaffId,
+      companyId
+    );
+
+    await NotificationService.createLeadAssignmentNotification(
+        transferResult.id,
+        parseInt(new_staff_id),
+        transferredByStaffId,
+        companyId
+    );
+
+    sseService.publish(`c_${companyId}`, 'leads_list_refresh', {
+        action: 'transferred',
+        leadId: transferResult.id,
+        newStaffId: parseInt(new_staff_id)
+    });
+
+    return successResponse(
+      res,
+      `Lead ${lead_id} successfully transferred to staff member ${new_staff_id}.`,
+      {
+          lead_id: transferResult.id,
+          new_assigned_to: transferResult.assigned_to
+      },
+      200,
+      req
+    );
+
+  } catch (err) {
+    if (err.message.includes("not found or unauthorized") || err.message.includes("not found")) {
+        return errorResponse(res, 404, err.message);
+    }
+    return errorResponse(res, 500, "Failed to transfer lead. " + err.message);
+  }
+};
+
 module.exports = {
   createLead,
   bulkUploadLeads,
@@ -1298,5 +1355,6 @@ module.exports = {
   markFollowUpComplete,
   updateLeadFollowUp,
   deleteLeadFollowUp,
-  downloadSampleCsv
+  downloadSampleCsv,
+  transferLeadController
 };

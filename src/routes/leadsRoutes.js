@@ -37,7 +37,8 @@ const {
   markFollowUpComplete,
   updateLeadFollowUp,
   deleteLeadFollowUp,
-  downloadSampleCsv
+  downloadSampleCsv,
+  transferLeadController
 } = require('../controllers/leadsController');
 
 const { authenticateAny, requirePermission } = require('../middleware/auth');
@@ -124,5 +125,6 @@ router.patch('/follow-ups/:id/complete', ...permissionChain, logActivity, markFo
 
 router.put('/leads/:leadId/followups/:followUpId', updateLeadFollowUp);
 router.delete('/leads/:leadId/followups/:followUpId', deleteLeadFollowUp);
+router.post('/transfer', ...permissionChain, logActivity, transferLeadController);
 
 module.exports = router;
