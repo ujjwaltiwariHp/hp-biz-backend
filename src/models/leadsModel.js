@@ -652,17 +652,23 @@ if (lead && lead.lead_data) {
 return lead;
 };
 
-const getLeadStatuses = async (companyId) => {
-  const result = await pool.query(
-    "SELECT id, status_name, status_color, sort_order, is_default, is_final, conversion_stage, created_at FROM lead_statuses WHERE company_id = $1 ORDER BY sort_order ASC",
-    [companyId]
-  );
+const getLeadStatuses = async (companyId, activeOnly = false) => {
+  let query = "SELECT id, status_name, status_color, sort_order, is_default, is_final, conversion_stage, is_active, created_at FROM lead_statuses WHERE company_id = $1";
+  const params = [companyId];
+
+  if (activeOnly) {
+    query += " AND is_active = true";
+  }
+
+  query += " ORDER BY sort_order ASC";
+
+  const result = await pool.query(query, params);
   return result.rows;
 };
 
 const getLeadStatusById = async (id, companyId) => {
   const result = await pool.query(
-    "SELECT id, status_name, status_color, sort_order, is_default, is_final, conversion_stage, created_at FROM lead_statuses WHERE id = $1 AND company_id = $2",
+    "SELECT id, status_name, status_color, sort_order, is_default, is_final, conversion_stage, is_active, created_at FROM lead_statuses WHERE id = $1 AND company_id = $2",
     [id, companyId]
   );
   return result.rows[0];
@@ -688,7 +694,7 @@ const createLeadStatus = async (data) => {
 };
 
 const updateLeadStatus = async (id, data, companyId) => {
-  const allowedFields = ["status_name", "status_color", "sort_order", "is_default", "is_final", "conversion_stage"];
+  const allowedFields = ["status_name", "status_color", "sort_order", "is_default", "is_final", "conversion_stage", "is_active"];
   const updateFields = [];
   const values = [];
   let paramCount = 1;
@@ -739,14 +745,19 @@ const isLeadExists = async (email, phone, companyId) => {
   return result.rows.length > 0;
 };
 
-const getLeadSources = async (companyId) => {
-  const result = await pool.query(
-    "SELECT id, source_name, source_type, webhook_url, api_key, is_active, created_at FROM lead_sources WHERE company_id = $1",
-    [companyId]
-  );
+const getLeadSources = async (companyId, activeOnly = false) => {
+  let query = "SELECT id, source_name, source_type, webhook_url, api_key, is_active, total_leads_received, created_at FROM lead_sources WHERE company_id = $1";
+  const params = [companyId];
+
+  if (activeOnly) {
+    query += " AND is_active = true";
+  }
+
+  query += " ORDER BY source_name ASC";
+
+  const result = await pool.query(query, params);
   return result.rows;
 };
-
 const getLeadSourceById = async (id, companyId) => {
   const result = await pool.query(
     "SELECT id, source_name, source_type, webhook_url, api_key, is_active, total_leads_received, created_at FROM lead_sources WHERE id = $1 AND company_id = $2",

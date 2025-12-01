@@ -9,6 +9,8 @@ const {
   deleteLead,
   searchLeads,
   getLeadStatuses,
+  toggleLeadStatus,
+  toggleLeadSource,
   getLeadStatusById,
   createLeadStatus,
   updateLeadStatusRecord,
@@ -67,6 +69,8 @@ router.get('/statuses/:id', ...subscriptionChain, getLeadStatusById);
 router.post('/statuses/create', ...permissionChain, logActivity, createLeadStatus);
 router.put('/statuses/update/:id', ...permissionChain, updateLeadStatusRecord);
 router.delete('/statuses/delete/:id', ...permissionChain, logActivity, deleteLeadStatus);
+router.put('/statuses/toggle/:id', ...permissionChain, logActivity, toggleLeadStatus);
+router.put('/sources/toggle/:id', ...permissionChain, logActivity, toggleLeadSource);
 
 router.post('/create',
     ...permissionChain,

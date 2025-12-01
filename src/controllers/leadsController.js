@@ -481,8 +481,37 @@ const searchLeads = async (req, res) => {
 
 const getLeadStatuses = async (req, res) => {
   try {
-    const statuses = await Lead.getLeadStatuses(req.company.id);
+    const activeOnly = req.query.active_only === 'true';
+
+    const statuses = await Lead.getLeadStatuses(req.company.id, activeOnly);
     return successResponse(res, "Lead statuses fetched successfully", statuses, 200, req);
+  } catch (err) {
+    return errorResponse(res, 500, err.message);
+  }
+};
+
+const toggleLeadStatus = async (req, res) => {
+  try {
+    const companyId = req.company.id;
+    const statusId = req.params.id;
+    const currentStatus = await Lead.getLeadStatusById(statusId, companyId);
+    if (!currentStatus) {
+      return errorResponse(res, 404, "Lead status not found");
+    }
+    if (currentStatus.is_active && currentStatus.is_default) {
+      return errorResponse(res, 400, "Cannot deactivate the Default status. Please set another status as default first.");
+    }
+    const newActiveState = !currentStatus.is_active;
+    const updatedStatus = await Lead.updateLeadStatus(statusId, { is_active: newActiveState }, companyId);
+
+    return successResponse(
+      res,
+      `Lead status ${newActiveState ? 'activated' : 'deactivated'} successfully`,
+      updatedStatus,
+      200,
+      req
+    );
+
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -548,7 +577,8 @@ const deleteLeadStatus = async (req, res) => {
 
 const getLeadSources = async (req, res) => {
   try {
-    const sources = await Lead.getLeadSources(req.company.id);
+    const activeOnly = req.query.active_only === 'true'; // Capture the filter
+    const sources = await Lead.getLeadSources(req.company.id, activeOnly); // Pass the filter
     return successResponse(res, "Lead sources fetched successfully", sources, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
@@ -596,6 +626,35 @@ const updateLeadSource = async (req, res) => {
     return errorResponse(res, 500, err.message);
   }
 };
+
+const toggleLeadSource = async (req, res) => {
+  try {
+    const companyId = req.company.id;
+    const sourceId = req.params.id;
+
+    const currentSource = await Lead.getLeadSourceById(sourceId, companyId);
+    if (!currentSource) {
+      return errorResponse(res, 404, "Lead source not found");
+    }
+
+    const newActiveState = !currentSource.is_active;
+
+    const updatedSource = await Lead.updateLeadSource(sourceId, { is_active: newActiveState }, companyId);
+
+    return successResponse(
+      res,
+      `Lead source ${newActiveState ? 'activated' : 'deactivated'} successfully`,
+      updatedSource,
+      200,
+      req
+    );
+
+  } catch (err) {
+    console.error("Toggle Lead Source Error:", err);
+    return errorResponse(res, 500, err.message);
+  }
+};
+
 
 const deleteLeadSource = async (req, res) => {
   try {
@@ -1213,10 +1272,12 @@ module.exports = {
   getLeadStatuses,
   getLeadStatusById,
   createLeadStatus,
+  toggleLeadStatus,
   updateLeadStatusRecord,
   deleteLeadStatus,
   getLeadSources,
   getLeadSourceById,
+  toggleLeadSource,
   createLeadSource,
   updateLeadSource,
   deleteLeadSource,
