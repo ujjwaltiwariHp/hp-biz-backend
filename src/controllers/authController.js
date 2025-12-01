@@ -288,6 +288,7 @@ const login = async (req, res) => {
               created_at: detailedCompany.created_at,
               subscription_end_date: detailedCompany.subscription_end_date,
               is_active: detailedCompany.is_active,
+              profile_picture: detailedCompany.profile_picture,
               requires_plan_selection: requiresPlanSelection
             }
           };
@@ -321,7 +322,8 @@ const login = async (req, res) => {
               is_first_login: staff.is_first_login,
               designation: staff.designation,
               last_login: staff.last_login,
-              password_status: staff.password_status
+              password_status: staff.password_status,
+              profile_picture: staff.profile_picture
             }
           };
         }
@@ -713,7 +715,8 @@ const updateProfile = async (req, res) => {
       website,
       industry,
       company_size,
-      timezone
+      timezone,
+      profile_picture
     } = req.body;
 
     const profileData = {};
@@ -747,7 +750,6 @@ const updateProfile = async (req, res) => {
       profileData.website = website;
     }
 
-
     if (industry !== undefined) {
       profileData.industry = industry;
     }
@@ -777,6 +779,9 @@ const updateProfile = async (req, res) => {
       profileData.timezone = timezone;
     }
 
+    if (profile_picture !== undefined) {
+      profileData.profile_picture = profile_picture;
+    }
 
     if (Object.keys(profileData).length === 0) {
       return errorResponse(res, 400, "No valid fields provided for update");
@@ -787,7 +792,6 @@ const updateProfile = async (req, res) => {
     if (!updatedCompany) {
       return errorResponse(res, 404, "Company not found or unauthorized");
     }
-
 
     try {
       await createNotification({
@@ -865,6 +869,7 @@ const getProfile = async (req, res) => {
           is_active: company.is_active,
           created_at: company.created_at,
           updated_at: company.updated_at,
+          profile_picture: company.profile_picture,
           timezone: timezone
         },
         subscription: {
@@ -901,7 +906,8 @@ const getProfile = async (req, res) => {
           role_name: staff.role_name,
           permissions: staff.permissions,
           status: staff.status,
-          last_login: staff.last_login
+          last_login: staff.last_login,
+          profile_picture: staff.profile_picture
         }
       };
       return successResponse(res, "Profile fetched successfully", staffData, 200, req);

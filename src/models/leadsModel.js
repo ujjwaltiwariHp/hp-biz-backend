@@ -947,133 +947,100 @@ const getLeadTagsByLeadId = async (leadId, companyId) => {
 const getLeadTimelineForHistory = async (leadId, companyId) => {
   const result = await pool.query(
     `SELECT * FROM (
+      -- 1. Lead Creation
       SELECT
         l.created_at as timestamp,
         EXTRACT(DAY FROM l.created_at) as day,
         TO_CHAR(l.created_at, 'Mon') as month,
         'New' as activity_type,
-        CONCAT('Looking for ', COALESCE(l.company_name, 'services'), ' initially looking for quote.') as description,
-        ls.status_name as status_name,
-        ls.status_color as status_color,
-        l.remarks as remarks,
+        'New' as badge_label,
+        ls_status.status_color as badge_color,
+        l.remarks::text as remarks, -- Cast to text to match other branches
+        CAST(NULL AS TIMESTAMP) as scheduled_time, -- Explicit cast to fix error
         1 as sort_priority
       FROM leads l
-      LEFT JOIN lead_statuses ls ON l.status_id = ls.id
+      LEFT JOIN lead_statuses ls_status ON l.status_id = ls_status.id
       WHERE l.id = $1 AND l.company_id = $2
 
       UNION ALL
 
+      -- 2. Activities & Status Changes
       SELECT
         la.created_at as timestamp,
         EXTRACT(DAY FROM la.created_at) as day,
         TO_CHAR(la.created_at, 'Mon') as month,
-        CASE
-          WHEN la.activity_type = 'status_change' THEN 'Contacted'
-          WHEN la.activity_type = 'call' THEN 'Called'
-          WHEN la.activity_type = 'email' THEN 'Emailed'
-          WHEN la.activity_type = 'meeting' THEN 'Meeting'
-          WHEN la.activity_type = 'note' THEN 'Note Added'
-          ELSE INITCAP(la.activity_type)
-        END as activity_type,
-        COALESCE(la.description,
-          CASE
-            WHEN la.activity_type = 'status_change' THEN CONCAT('Status changed to ', la.new_value)
-            WHEN la.activity_type = 'call' THEN 'Phone call made'
-            WHEN la.activity_type = 'email' THEN 'Email sent'
-            ELSE la.activity_type
-          END
-        ) as description,
+        la.activity_type,
         CASE
           WHEN la.activity_type = 'status_change' THEN la.new_value
-          ELSE NULL
-        END as status_name,
+          WHEN la.activity_type = 'call' THEN 'Call'
+          WHEN la.activity_type = 'meeting' THEN 'Meeting'
+          WHEN la.activity_type = 'note' THEN 'Note'
+          ELSE INITCAP(la.activity_type)
+        END as badge_label,
         CASE
           WHEN la.activity_type = 'status_change' THEN (
             SELECT status_color FROM lead_statuses
             WHERE status_name = la.new_value AND company_id = $2 LIMIT 1
           )
-          ELSE NULL
-        END as status_color,
+          ELSE '#6c757d'
+        END as badge_color,
         la.description as remarks,
+        CAST(NULL AS TIMESTAMP) as scheduled_time, -- Explicit cast to fix error
         2 as sort_priority
       FROM lead_activities la
-      INNER JOIN leads l ON la.lead_id = l.id
-      WHERE la.lead_id = $1 AND l.company_id = $2
+      WHERE la.lead_id = $1 -- Removed company_id check as table lacks it
 
       UNION ALL
 
+      -- 3. Follow-Ups (Scheduled)
       SELECT
         fr.created_at as timestamp,
         EXTRACT(DAY FROM fr.created_at) as day,
         TO_CHAR(fr.created_at, 'Mon') as month,
-        'Follow Up' as activity_type,
-        CONCAT('Follow-up scheduled: ', COALESCE(fr.message, 'No remarks')) as description,
-        NULL as status_name,
-        NULL as status_color,
+        'follow_up' as activity_type,
+        'Follow Up' as badge_label,
+        '#00c0a3' as badge_color,
         fr.message as remarks,
+        fr.reminder_time as scheduled_time, -- This is the TIMESTAMP source
         3 as sort_priority
       FROM follow_up_reminders fr
-      INNER JOIN leads l ON fr.lead_id = l.id
-      WHERE fr.lead_id = $1 AND l.company_id = $2
+      WHERE fr.lead_id = $1 AND fr.company_id = $2
 
       UNION ALL
 
+      -- 4. Follow-Ups (Completed)
       SELECT
         fr.completed_at as timestamp,
         EXTRACT(DAY FROM fr.completed_at) as day,
         TO_CHAR(fr.completed_at, 'Mon') as month,
-        'Follow Up Completed' as activity_type,
-        CONCAT('Follow-up completed: ', COALESCE(fr.message, 'No remarks')) as description,
-        NULL as status_name,
-        NULL as status_color,
+        'follow_up_completed' as activity_type,
+        'Completed' as badge_label,
+        '#28a745' as badge_color,
         fr.message as remarks,
+        CAST(NULL AS TIMESTAMP) as scheduled_time, -- Explicit cast to fix error
         4 as sort_priority
       FROM follow_up_reminders fr
-      INNER JOIN leads l ON fr.lead_id = l.id
-      WHERE fr.lead_id = $1 AND l.company_id = $2
+      WHERE fr.lead_id = $1 AND fr.company_id = $2
         AND fr.is_completed = true
         AND fr.completed_at IS NOT NULL
 
     ) combined_timeline
-    ORDER BY timestamp DESC, sort_priority ASC`,
+    ORDER BY timestamp DESC, sort_priority DESC`,
     [leadId, companyId]
   );
 
-  return result.rows.map(item => {
-    const baseItem = {
-      day: parseInt(item.day),
-      month: item.month,
-      activity_type: item.activity_type,
-      description: item.description,
-      timestamp: item.timestamp
-    };
-
-    if (item.activity_type === 'New') {
-      baseItem.status = item.status_name ? {
-        name: item.status_name,
-        color: item.status_color
-      } : null;
-      if (item.remarks) {
-        baseItem.remarks = item.remarks;
-      }
-    } else if (item.activity_type === 'Contacted' || item.activity_type.includes('status')) {
-      if (item.status_name) {
-        baseItem.status = {
-          name: item.status_name,
-          color: item.status_color
-        };
-      }
-    } else if (item.activity_type.includes('Follow Up')) {
-      if (item.remarks) {
-        baseItem.remarks = item.remarks;
-      }
-      if (item.activity_type === 'Follow Up') {
-        baseItem.scheduled_time = item.timestamp;
-      }
-    }
-
-    return baseItem;
-  });
+  return result.rows.map(item => ({
+    day: parseInt(item.day),
+    month: item.month,
+    activity_type: item.activity_type,
+    badge: {
+      label: item.badge_label,
+      color: item.badge_color || '#007bff'
+    },
+    remarks: item.remarks || '',
+    scheduled_time: item.scheduled_time,
+    timestamp: item.timestamp
+  }));
 };
 
 const getLeadDetailsForUI = async (id, companyId) => {
@@ -1355,156 +1322,23 @@ const getLeadHistoryWithTimeline = async (leadId, companyId) => {
 
   const leadData = await pool.query(
     `SELECT l.id, l.first_name, l.last_name, l.created_at, l.updated_at,
-            ls.status_name, ls.status_color, l.remarks
+            ls.status_name, ls.status_color, l.remarks, l.email, l.phone
      FROM leads l
      LEFT JOIN lead_statuses ls ON l.status_id = ls.id
      WHERE l.id = $1 AND l.company_id = $2`,
     [leadId, companyId]
   );
 
-  if (leadData.rows.length === 0) {
-    throw new Error("Lead not found or unauthorized");
-  }
-
-  const timeline = await pool.query(
-    `SELECT * FROM (
-      SELECT
-        l.created_at as timestamp,
-        EXTRACT(DAY FROM l.created_at) as day,
-        TO_CHAR(l.created_at, 'Mon') as month,
-        'New' as activity_type,
-        CONCAT('Looking for ', COALESCE(l.company_name, 'services'), ' initially looking for quote.') as description,
-        ls.status_name as status_name,
-        ls.status_color as status_color,
-        l.remarks as remarks,
-        1 as sort_priority
-      FROM leads l
-      LEFT JOIN lead_statuses ls ON l.status_id = ls.id
-      WHERE l.id = $1 AND l.company_id = $2
-
-      UNION ALL
-
-      SELECT
-        la.created_at as timestamp,
-        EXTRACT(DAY FROM la.created_at) as day,
-        TO_CHAR(la.created_at, 'Mon') as month,
-        CASE
-          WHEN la.activity_type = 'status_change' THEN 'Contacted'
-          WHEN la.activity_type = 'call' THEN 'Called'
-          WHEN la.activity_type = 'email' THEN 'Emailed'
-          WHEN la.activity_type = 'meeting' THEN 'Meeting'
-          WHEN la.activity_type = 'note' THEN 'Note Added'
-          WHEN la.activity_type = 'assignment' THEN 'Assigned'
-          WHEN la.activity_type = 'creation' THEN 'Created'
-          ELSE INITCAP(la.activity_type)
-        END as activity_type,
-        COALESCE(la.description,
-          CASE
-            WHEN la.activity_type = 'status_change' THEN CONCAT('Status changed to ', la.new_value)
-            WHEN la.activity_type = 'call' THEN 'Phone call made'
-            WHEN la.activity_type = 'email' THEN 'Email sent'
-            WHEN la.activity_type = 'assignment' THEN CONCAT('Lead assigned to ', la.new_value)
-            WHEN la.activity_type = 'creation' THEN 'Lead created'
-            ELSE la.activity_type
-          END
-        ) as description,
-        CASE
-          WHEN la.activity_type = 'status_change' THEN la.new_value
-          ELSE NULL
-        END as status_name,
-        CASE
-          WHEN la.activity_type = 'status_change' THEN (
-            SELECT status_color FROM lead_statuses
-            WHERE status_name = la.new_value AND company_id = $2 LIMIT 1
-          )
-          ELSE NULL
-        END as status_color,
-        la.description as remarks,
-        2 as sort_priority
-      FROM lead_activities la
-      INNER JOIN leads l ON la.lead_id = l.id
-      WHERE la.lead_id = $1 AND l.company_id = $2
-
-      UNION ALL
-
-      SELECT
-        fr.created_at as timestamp,
-        EXTRACT(DAY FROM fr.created_at) as day,
-        TO_CHAR(fr.created_at, 'Mon') as month,
-        'Follow Up' as activity_type,
-        CONCAT('Follow-up scheduled: ', COALESCE(fr.message, 'No remarks')) as description,
-        NULL as status_name,
-        NULL as status_color,
-        fr.message as remarks,
-        3 as sort_priority
-      FROM follow_up_reminders fr
-      INNER JOIN leads l ON fr.lead_id = l.id
-      WHERE fr.lead_id = $1 AND l.company_id = $2
-
-      UNION ALL
-
-      SELECT
-        fr.completed_at as timestamp,
-        EXTRACT(DAY FROM fr.completed_at) as day,
-        TO_CHAR(fr.completed_at, 'Mon') as month,
-        'Follow Up Completed' as activity_type,
-        CONCAT('Follow-up completed: ', COALESCE(fr.message, 'No remarks')) as description,
-        NULL as status_name,
-        NULL as status_color,
-        fr.message as remarks,
-        4 as sort_priority
-      FROM follow_up_reminders fr
-      INNER JOIN leads l ON fr.lead_id = l.id
-      WHERE fr.lead_id = $1 AND l.company_id = $2
-        AND fr.is_completed = true
-        AND fr.completed_at IS NOT NULL
-
-    ) combined_timeline
-    ORDER BY timestamp DESC, sort_priority ASC`,
-    [leadId, companyId]
-  );
-
   const lead = leadData.rows[0];
-  const timelineData = timeline.rows.map(item => {
-    const baseItem = {
-      day: parseInt(item.day),
-      month: item.month,
-      activity_type: item.activity_type,
-      description: item.description,
-      timestamp: item.timestamp
-    };
 
-    if (item.activity_type === 'New') {
-      baseItem.status = item.status_name ? {
-        name: item.status_name,
-        color: item.status_color
-      } : null;
-      if (item.remarks) {
-        baseItem.remarks = item.remarks;
-      }
-    } else if (item.activity_type === 'Contacted' || item.activity_type.includes('status')) {
-      if (item.status_name) {
-        baseItem.status = {
-          name: item.status_name,
-          color: item.status_color
-        };
-      }
-    } else if (item.activity_type.includes('Follow Up')) {
-      if (item.remarks) {
-        baseItem.remarks = item.remarks;
-      }
-      if (item.activity_type === 'Follow Up') {
-        baseItem.scheduled_time = item.timestamp;
-      }
-    }
-
-    return baseItem;
-  });
+  const timeline = await getLeadTimelineForHistory(leadId, companyId);
 
   return {
     lead: {
       id: lead.id,
       name: `${lead.first_name} ${lead.last_name}`,
+      email: lead.email,
+      phone: lead.phone,
       added_at: lead.created_at,
       updated_at: lead.updated_at,
       status: {
@@ -1512,7 +1346,7 @@ const getLeadHistoryWithTimeline = async (leadId, companyId) => {
         color: lead.status_color
       }
     },
-    timeline: timelineData
+    timeline: timeline
   };
 };
 
