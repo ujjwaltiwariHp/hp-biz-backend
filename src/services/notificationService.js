@@ -13,7 +13,12 @@ const sendPushNotification = async (userIds, payload, userType = 'staff') => {
   try {
     const tokens = await getTokensByUserIds(targetIds, userType);
 
-    if (tokens.length === 0) return;
+    if (tokens.length === 0) {
+        console.log(`No devices found for User IDs: ${targetIds}`);
+        return;
+    }
+
+    console.log(`Attempting to send Push to ${tokens.length} devices...`);
 
     const message = {
       notification: {
@@ -40,11 +45,15 @@ const sendPushNotification = async (userIds, payload, userType = 'staff') => {
 
     const response = await admin.messaging().sendEachForMulticast(message);
 
+    console.log('Firebase Response:', JSON.stringify(response.responses));
+
     if (response.failureCount > 0) {
+      console.log(`Failed to send to ${response.failureCount} devices.`);
       const failedTokens = [];
       response.responses.forEach((resp, idx) => {
         if (!resp.success) {
           const errorInfo = resp.error;
+          console.log('FCM Send Error:', errorInfo);
           if (errorInfo.code === 'messaging/registration-token-not-registered' ||
               errorInfo.code === 'messaging/invalid-argument') {
             failedTokens.push(tokens[idx]);
@@ -57,6 +66,7 @@ const sendPushNotification = async (userIds, payload, userType = 'staff') => {
       }
     }
   } catch (error) {
+    console.error('Push Notification System Error:', error);
   }
 };
 
@@ -160,7 +170,6 @@ const createLeadAssignmentNotification = async (leadId, assignedTo, assignedBy, 
       });
     }
 
-
     if (notifications.length > 0) {
       await Notifications.createBulkNotifications(notifications);
 
@@ -223,7 +232,6 @@ const createBulkAssignmentNotification = async (leadIds, assignedTo, assignedBy,
       });
     }
 
-
     if (notifications.length > 0) {
       await Notifications.createBulkNotifications(notifications);
 
@@ -274,7 +282,6 @@ const createCustomNotification = async (companyId, staffIdOrType, title, message
         related_lead_id: relatedLeadId,
         priority
       });
-
 
       await sendPushNotification(staffId, {
         title: title,
@@ -340,7 +347,6 @@ const createLeadActivityNotification = async (leadId, activityType, staffId, com
         priority: "low"
       });
     }
-
 
     if (notifications.length > 0) {
       await Notifications.createBulkNotifications(notifications);
@@ -460,7 +466,6 @@ const createLeadUpdateNotification = async (leadId, updatedBy, companyId, update
       });
     }
 
-
     if (notifications.length > 0) {
       await Notifications.createBulkNotifications(notifications);
 
@@ -480,7 +485,6 @@ const createLeadUpdateNotification = async (leadId, updatedBy, companyId, update
     console.error('Error creating lead update notification:', error);
   }
 };
-
 
 const createSubscriptionActivationNotification = async (companyData, packageData, endDate, superAdminName, invoiceData, pdfBuffer) => {
   try {
