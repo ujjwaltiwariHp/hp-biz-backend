@@ -416,8 +416,25 @@ const updateLeadStatus = async (req, res) => {
 const getLeads = async (req, res) => {
   try {
     const companyId = req.company.id;
-    const leads = await Lead.getLeadsWithTags(companyId);
-    return successResponse(res, "Leads fetched successfully", leads, 200, req);
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 15;
+    const offset = (page - 1) * limit;
+    const [leads, totalCount] = await Promise.all([
+      Lead.getLeadsWithTags(companyId, limit, offset),
+      Lead.getLeadsTotalCount(companyId)
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return successResponseWithPagination(res, "Leads fetched successfully", leads, {
+      page,
+      limit,
+      total_records: parseInt(totalCount),
+      total_pages: totalPages,
+      has_next: page < totalPages,
+      has_prev: page > 1
+    }, 200, req);
+
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
