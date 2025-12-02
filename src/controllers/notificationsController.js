@@ -1,4 +1,5 @@
 const Notifications = require("../models/notificationsModel");
+const { registerDeviceToken } = require('../models/deviceTokenModel');
 const { successResponse } = require("../utils/responseFormatter");
 const { errorResponse } = require("../utils/errorResponse");
 
@@ -170,6 +171,38 @@ const deleteNotification = async (req, res) => {
   }
 };
 
+const registerDevice = async (req, res) => {
+  try {
+    const { fcm_token, device_type } = req.body;
+
+    if (!fcm_token) {
+      return errorResponse(res, 400, "FCM Token is required");
+    }
+
+    let userId = null;
+    let userType = null;
+
+    if (req.staff) {
+      userId = req.staff.id;
+      userType = 'staff';
+    } else if (req.company) {
+      userId = req.company.id;
+      userType = 'company';
+    } else if (req.superAdmin) {
+      userId = req.superAdmin.id;
+      userType = 'super_admin';
+    } else {
+      return errorResponse(res, 401, "Unauthorized");
+    }
+
+    await registerDeviceToken(userId, userType, fcm_token, device_type || 'android');
+
+    return successResponse(res, "Device registered successfully", {}, 200, req);
+  } catch (error) {
+    return errorResponse(res, 500, "Failed to register device");
+  }
+};
+
 module.exports = {
   getNotifications,
   getNotificationById,
@@ -179,5 +212,6 @@ module.exports = {
   getNotificationHistory,
   updateNotificationSettings,
   getNotificationSettings,
-  deleteNotification
+  deleteNotification,
+  registerDevice
 };
