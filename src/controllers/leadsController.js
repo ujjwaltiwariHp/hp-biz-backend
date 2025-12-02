@@ -375,7 +375,6 @@ const updateLeadStatus = async (req, res) => {
       const oldStatus = await Lead.getStatusNameById(oldStatusId, companyId);
       const newStatus = await Lead.getStatusNameById(status_id, companyId);
 
-      await Lead.trackLeadStatusChange(req.params.id, oldStatusId, status_id, trackingUserId, companyId);
       await NotificationService.createLeadStatusChangeNotification(
         req.params.id,
         oldStatus,
@@ -390,6 +389,20 @@ const updateLeadStatus = async (req, res) => {
         trackingUserId,
         companyId
       );
+
+      const adminId = await NotificationService.getAdminStaffId(companyId);
+      if (adminId) {
+        const leadName = `${currentLead.first_name} ${currentLead.last_name}`;
+        await NotificationService.sendPushNotification(adminId, {
+          title: "Status Update",
+          body: `Status Update: ${leadName} marked as ${newStatus}`,
+          data: {
+            leadId: String(req.params.id),
+            type: 'status_change',
+            companyId: String(companyId)
+          }
+        }, 'staff'); // sending to admin as staff/user
+      }
     }
 
     sseService.publish(`c_${companyId}`, 'leads_list_refresh', { action: 'status_updated', leadId: req.params.id, newStatusId: status_id });

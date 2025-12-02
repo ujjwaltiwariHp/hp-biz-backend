@@ -21,6 +21,7 @@ const {
 
 const Staff = require('../models/staffModel');
 const { checkEmailIdentity } = require('../models/authDiscoveryModel');
+const { deleteDeviceToken } = require('../models/deviceTokenModel');
 
 const { updateSubscriptionStatusManual } = require('../models/super-admin-models/companyModel');
 const { getPackageById, getActivePackages } = require('../models/super-admin-models/subscriptionModel');
@@ -77,7 +78,6 @@ const checkEmail = async (req, res) => {
     }, 200, req);
 
   } catch (error) {
-    console.error("Check Email Error:", error);
     return errorResponse(res, 500, "Internal server error");
   }
 };
@@ -117,12 +117,10 @@ const signup = async (req, res) => {
 
       return successResponse(res, "OTP sent to your email address", {}, 200, req);
     } catch (emailError) {
-      console.error("Signup Email Error:", emailError);
       return errorResponse(res, 500, "Failed to send OTP email");
     }
 
   } catch (error) {
-    console.error("Signup Controller Error:", error);
     return errorResponse(res, 500, "Internal server error");
   }
 };
@@ -196,7 +194,6 @@ const verifyOTP = async (req, res) => {
     }, 200, req);
 
   } catch (error) {
-    console.error("Verify OTP Error:", error);
     return errorResponse(res, 500, "Internal server error");
   }
 };
@@ -238,7 +235,6 @@ const setPassword = async (req, res) => {
     return successResponse(res, "Account created successfully. You can now login.", {}, 200, req);
 
   } catch (error) {
-    console.error("Set Password Error:", error);
     return errorResponse(res, 500, "Internal server error");
   }
 };
@@ -369,7 +365,6 @@ const login = async (req, res) => {
     }, 200, req);
 
   } catch (error) {
-    console.error('Login Controller Error:', error);
     return errorResponse(res, 500, "Internal server error");
   }
 };
@@ -393,7 +388,6 @@ const setInitialPassword = async (req, res) => {
     return successResponse(res, "Password set successfully. Your account is now active.", {}, 200, req);
 
   } catch (error) {
-    console.error("Set Initial Password Error:", error);
     return errorResponse(res, 500, "Failed to set password");
   }
 };
@@ -432,7 +426,6 @@ const refreshToken = async (req, res) => {
     return successResponse(res, "Token refreshed", { token: newAccessToken }, 200, req);
 
   } catch (error) {
-    console.error("Refresh Token Error:", error);
     return errorResponse(res, 500, error.message);
   }
 };
@@ -485,7 +478,6 @@ const forgotPassword = async (req, res) => {
     return successResponse(res, "Password reset OTP sent to email", {}, 200, req);
 
   } catch (error) {
-    console.error("Forgot Password Error:", error);
     return errorResponse(res, 500, "Internal server error");
   }
 };
@@ -549,7 +541,6 @@ const resetPassword = async (req, res) => {
     return successResponse(res, "Password reset successfully.", {}, 200, req);
 
   } catch (error) {
-    console.error("Reset Password Error:", error);
     return errorResponse(res, 500, "Internal server error");
   }
 };
@@ -566,7 +557,6 @@ const getAvailablePackages = async (req, res) => {
       packages: availablePackages
     }, 200, req);
   } catch (error) {
-    console.error("Get Packages Error:", error);
     return errorResponse(res, 500, "Failed to retrieve subscription packages for selection.");
   }
 };
@@ -677,7 +667,6 @@ const selectInitialSubscription = async (req, res) => {
           }
         });
       } catch (e) {
-        console.error('Non-critical: Failed to send Super Admin notification:', e);
       }
 
       await logSystemEvent({
@@ -696,7 +685,6 @@ const selectInitialSubscription = async (req, res) => {
     }
 
   } catch (error) {
-    console.error('Select Initial Subscription Error:', error);
     return errorResponse(res, 500, 'Failed to process subscription selection.');
   }
 };
@@ -816,7 +804,6 @@ const updateProfile = async (req, res) => {
     if (error.message.includes("No valid fields")) {
       return errorResponse(res, 400, error.message);
     }
-    console.error("Update Profile Error:", error);
     return errorResponse(res, 500, "Internal server error");
   }
 };
@@ -913,7 +900,6 @@ const getProfile = async (req, res) => {
       return successResponse(res, "Profile fetched successfully", staffData, 200, req);
     }
   } catch (error) {
-    console.error("Get Profile Error:", error);
     return errorResponse(res, 500, "Internal server error");
   }
 };
@@ -953,7 +939,6 @@ const changePassword = async (req, res) => {
       }, 200, req);
     }
   } catch (err) {
-    console.error("Change Password Error:", err);
     return errorResponse(res, 500, err.message);
   }
 };
@@ -961,6 +946,11 @@ const changePassword = async (req, res) => {
 const logout = async (req, res) => {
   try {
     const token = req.cookies ? req.cookies.refreshToken : null;
+    const { fcm_token } = req.body;
+
+    if (fcm_token) {
+        await deleteDeviceToken(fcm_token);
+    }
 
     if (token) {
       await Promise.allSettled([
@@ -978,7 +968,6 @@ const logout = async (req, res) => {
 
     return successResponse(res, "Logged out successfully", {}, 200, req);
   } catch (error) {
-    console.error('Logout Logic Error:', error);
     return errorResponse(res, 500, "Internal server error during logout");
   }
 };
@@ -1092,7 +1081,6 @@ const getSubscriptionStatus = async (req, res) => {
     return successResponse(res, "Subscription status retrieved successfully", responseData, 200, req);
 
   } catch (error) {
-    console.error('Get subscription status error:', error);
     return errorResponse(res, 500, "Internal server error");
   }
 };

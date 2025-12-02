@@ -12,3 +12,5 @@ CREATE TABLE IF NOT EXISTS device_tokens (
 
 CREATE INDEX IF NOT EXISTS idx_device_tokens_user
 ON device_tokens(user_id, user_type);
+
+ALTER TABLE follow_up_reminders ADD COLUMN IF NOT EXISTS last_notification_sent_at TIMESTAMP;
