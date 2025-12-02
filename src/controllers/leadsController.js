@@ -1,5 +1,5 @@
 const Lead = require("../models/leadsModel");
-const { successResponse } = require("../utils/responseFormatter");
+const { successResponse, successResponseWithPagination } = require("../utils/responseFormatter");
 const { errorResponse } = require("../utils/errorResponse");
 const NotificationService = require("../services/notificationService");
 const { parseAndConvertToUTC } = require('../utils/timezoneHelper');
