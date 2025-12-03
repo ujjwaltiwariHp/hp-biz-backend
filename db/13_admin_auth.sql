@@ -7,5 +7,3 @@ CREATE TABLE IF NOT EXISTS super_admin_sessions (
     expires_at TIMESTAMP NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE INDEX IF NOT EXISTS idx_super_admin_sessions_token ON super_admin_sessions(refresh_token);
