@@ -104,8 +104,8 @@ const getSystemEventLogs = async (req, res) => {
     const parsedPage = parseInt(page);
 
     const [logs, totalCount] = await Promise.all([
-        getSystemLogs(filters),
-        getTotalSystemLogsCount(filters)
+      getSystemLogs(filters),
+      getTotalSystemLogsCount(filters)
     ]);
 
     const totalPages = Math.ceil(totalCount / parsedLimit);
@@ -182,11 +182,11 @@ const exportLogs = async (req, res) => {
     let filename;
 
     const baseFilters = {
-        company_id,
-        start_date,
-        end_date,
-        search,
-        limit: 10000
+      company_id,
+      start_date,
+      end_date,
+      search,
+      limit: 10000
     };
 
     if (type === 'activity') {
@@ -201,7 +201,7 @@ const exportLogs = async (req, res) => {
       logs = await getSystemLogs(baseFilters);
       filename = `system-logs-${Date.now()}.csv`;
     } else {
-        return errorResponse(res, 400, "Invalid export type. Must be 'activity' or 'system'.");
+      return errorResponse(res, 400, "Invalid export type. Must be 'activity' or 'system'.");
     }
 
     const csv = convertLogsToCSV(logs, type);
@@ -222,6 +222,24 @@ const cleanupOldLogs = async (req, res) => {
     const result = await cleanOldLogs(parseInt(days_to_keep));
 
     return successResponse(res, "Old logs cleaned successfully", result, 200, req);
+  } catch (error) {
+    return errorResponse(res, 500, error.message);
+  }
+};
+
+const getFilterOptions = async (req, res) => {
+  try {
+    const company_id = req.company.id;
+
+    const [actionTypes, resourceTypes] = await Promise.all([
+      getActionTypes(company_id),
+      getResourceTypes(company_id)
+    ]);
+
+    return successResponse(res, "Filter options retrieved successfully", {
+      action_types: actionTypes,
+      resource_types: resourceTypes
+    }, 200, req);
   } catch (error) {
     return errorResponse(res, 500, error.message);
   }
@@ -269,9 +287,6 @@ const processStaffActivity = (logs) => {
     }
     summary.resource_breakdown[log.resource_type]++;
 
-    // Use current date to determine hour if created_at is a string,
-    // ideally it should be parsed back to a Date object first,
-    // but here we rely on the model returning a string representation of UTC time.
     const hour = new Date(log.created_at).getHours();
     summary.hourly_activity[hour]++;
   });
@@ -292,7 +307,7 @@ const convertLogsToCSV = (logs, type) => {
     ];
 
     rows = logs.map(log => [
-      log.created_at, // ISO string from model
+      log.created_at,
       `${log.first_name || ''} ${log.last_name || ''}`.trim() || 'System',
       log.email || '',
       log.action_type || '',
@@ -307,7 +322,7 @@ const convertLogsToCSV = (logs, type) => {
     ];
 
     rows = logs.map(log => [
-      log.created_at, // ISO string from model
+      log.created_at,
       log.company_name || '',
       `${log.first_name || ''} ${log.last_name || ''}`.trim() || 'System',
       log.log_level || '',
@@ -332,5 +347,6 @@ module.exports = {
   exportLogs,
   cleanupOldLogs,
   getActionTypes,
-  getResourceTypes
+  getResourceTypes,
+  getFilterOptions
 };

@@ -1,6 +1,7 @@
 const LeadDistribution = require("../models/leadDistributionModel");
 const { successResponse } = require("../utils/responseFormatter");
 const { errorResponse } = require("../utils/errorResponse");
+const NotificationService = require("../services/notificationService");
 
 const getDistributionSettings = async (req, res) => {
   try {
@@ -53,11 +54,34 @@ const manualAssignLeads = async (req, res) => {
     let assignedBy = null;
     if (req.staff) {
       assignedBy = req.staff.id;
+    } else if (req.company) {
+      assignedBy = req.company.id;
     }
 
     const results = await LeadDistribution.bulkAssignLeads(assignments, assignedBy, companyId);
 
     const totalAssigned = results.reduce((sum, result) => sum + result.assigned_leads.length, 0);
+
+    for (const result of results) {
+      const staffId = result.staff_id;
+      const leadIds = result.assigned_leads.map(l => l.id);
+
+      if (leadIds.length === 1) {
+        await NotificationService.createLeadAssignmentNotification(
+          leadIds[0],
+          staffId,
+          assignedBy,
+          companyId
+        );
+      } else if (leadIds.length > 1) {
+        await NotificationService.createBulkAssignmentNotification(
+          leadIds,
+          staffId,
+          assignedBy,
+          companyId
+        );
+      }
+    }
 
     return successResponse(res, "Leads assigned manually", {
       total_assigned: totalAssigned,
@@ -92,6 +116,8 @@ const automaticAssignLeads = async (req, res) => {
     let assignedBy = null;
     if (req.staff) {
       assignedBy = req.staff.id;
+    } else if (req.company) {
+      assignedBy = req.company.id;
     }
 
     const assignments = [];
@@ -112,6 +138,27 @@ const automaticAssignLeads = async (req, res) => {
 
     const results = await LeadDistribution.bulkAssignLeads(assignments, assignedBy, companyId);
     const totalAssigned = results.reduce((sum, result) => sum + result.assigned_leads.length, 0);
+
+    for (const result of results) {
+      const staffId = result.staff_id;
+      const leadIds = result.assigned_leads.map(l => l.id);
+
+      if (leadIds.length === 1) {
+        await NotificationService.createLeadAssignmentNotification(
+          leadIds[0],
+          staffId,
+          assignedBy,
+          companyId
+        );
+      } else if (leadIds.length > 1) {
+        await NotificationService.createBulkAssignmentNotification(
+          leadIds,
+          staffId,
+          assignedBy,
+          companyId
+        );
+      }
+    }
 
     return successResponse(res, "Leads assigned automatically based on workload", {
       total_assigned: totalAssigned,
@@ -146,9 +193,12 @@ const roundRobinAssignLeads = async (req, res) => {
     let assignedBy = null;
     if (req.staff) {
       assignedBy = req.staff.id;
+    } else if (req.company) {
+      assignedBy = req.company.id;
     }
 
     const results = [];
+    const notificationMap = {};
 
     for (let i = 0; i < unassignedLeads.length; i++) {
       const lead = unassignedLeads[i];
@@ -170,6 +220,29 @@ const roundRobinAssignLeads = async (req, res) => {
           results.push(existingResult);
         }
         existingResult.assigned_leads.push(...assignedLeads);
+
+        if (!notificationMap[nextStaff.id]) {
+          notificationMap[nextStaff.id] = [];
+        }
+        notificationMap[nextStaff.id].push(lead.id);
+      }
+    }
+
+    for (const [staffId, leadIds] of Object.entries(notificationMap)) {
+      if (leadIds.length === 1) {
+        await NotificationService.createLeadAssignmentNotification(
+          leadIds[0],
+          parseInt(staffId),
+          assignedBy,
+          companyId
+        );
+      } else if (leadIds.length > 1) {
+        await NotificationService.createBulkAssignmentNotification(
+          leadIds,
+          parseInt(staffId),
+          assignedBy,
+          companyId
+        );
       }
     }
 
@@ -208,6 +281,8 @@ const performanceBasedAssignLeads = async (req, res) => {
     let assignedBy = null;
     if (req.staff) {
       assignedBy = req.staff.id;
+    } else if (req.company) {
+      assignedBy = req.company.id;
     }
 
     const totalStaff = staffPerformance.length;
@@ -243,6 +318,27 @@ const performanceBasedAssignLeads = async (req, res) => {
 
     const results = await LeadDistribution.bulkAssignLeads(assignments, assignedBy, companyId);
     const totalAssigned = results.reduce((sum, result) => sum + result.assigned_leads.length, 0);
+
+    for (const result of results) {
+      const staffId = result.staff_id;
+      const leadIds = result.assigned_leads.map(l => l.id);
+
+      if (leadIds.length === 1) {
+        await NotificationService.createLeadAssignmentNotification(
+          leadIds[0],
+          staffId,
+          assignedBy,
+          companyId
+        );
+      } else if (leadIds.length > 1) {
+        await NotificationService.createBulkAssignmentNotification(
+          leadIds,
+          staffId,
+          assignedBy,
+          companyId
+        );
+      }
+    }
 
     return successResponse(res, "Leads assigned based on performance", {
       total_assigned: totalAssigned,

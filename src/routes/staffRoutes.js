@@ -32,24 +32,25 @@ const router = express.Router();
 
 const subscriptionChain = [authenticateAny, attachTimezone, getCompanySubscriptionAndUsage, checkSubscriptionActive];
 
-router.get('/', ...subscriptionChain, requirePermission('user_management'), getAllStaff);
+router.get('/', ...subscriptionChain, requirePermission('user_management', 'view'), getAllStaff);
+
 router.get('/roles', ...subscriptionChain, getCompanyRoles);
 router.get('/designations', ...subscriptionChain, getDesignationOptions);
 router.get('/statuses', ...subscriptionChain, getStatusOptions);
-router.get('/stats', ...subscriptionChain, requirePermission('user_management'), getStaffStats);
 
-// Staff Profile Routes (Must be before /:id)
+router.get('/stats', ...subscriptionChain, requirePermission('user_management', 'view'), getStaffStats);
+
 router.get('/profileByStaff', authenticateAny, attachTimezone, getMyProfile);
 router.put('/update-profile', authenticateAny, attachTimezone, uploadProfilePicture, compressProfilePicture, updateMyProfile);
 router.put('/update-password', authenticateAny, attachTimezone, updateMyPassword);
 
-// Specific Staff Operations (Admin/Manager Level)
-router.get('/:id', ...subscriptionChain, requirePermission('user_management'), getStaffById);
-router.get('/:id/performance', ...subscriptionChain, requirePermission('user_management'), getStaffPerformance);
+router.get('/:id', ...subscriptionChain, requirePermission('user_management', 'view'), getStaffById);
+
+router.get('/:id/performance', ...subscriptionChain, requirePermission('user_management', 'view'), getStaffPerformance);
 
 router.post('/create',
     ...subscriptionChain,
-    requirePermission('user_management'),
+    requirePermission('user_management', 'create'),
     checkStaffLimit,
     uploadProfilePicture,
     compressProfilePicture,
@@ -59,14 +60,14 @@ router.post('/create',
 
 router.put('/:id',
     ...subscriptionChain,
-    requirePermission('user_management'),
+    requirePermission('user_management', 'update'),
     uploadProfilePicture,
     compressProfilePicture,
     updateStaff
 );
 
-router.put('/status/:id', ...subscriptionChain, requirePermission('user_management'), updateStaffStatus);
+router.put('/status/:id', ...subscriptionChain, requirePermission('user_management', 'manage_status'), updateStaffStatus);
 
-router.delete('/delete/:id', ...subscriptionChain, requirePermission('user_management'), logActivity, deleteStaff);
+router.delete('/delete/:id', ...subscriptionChain, requirePermission('user_management', 'delete'), logActivity, deleteStaff);
 
 module.exports = router;

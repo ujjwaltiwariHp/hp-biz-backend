@@ -5,14 +5,30 @@ const { errorResponse } = require('../utils/errorResponse');
 const { getSuperAdminById } = require('../models/super-admin-models/authModel');
 const moment = require('moment');
 
+const safeVerify = (token) => {
+  if (!token || typeof token !== 'string') return null;
+  if (token.split('.').length !== 3) return null;
+  try {
+    return jwt.verify(token, process.env.JWT_SECRET);
+  } catch (err) {
+    return null;
+  }
+};
+
 const authenticate = async (req, res, next) => {
   try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
+    const authHeader = req.header('Authorization');
+    const token = authHeader ? authHeader.replace('Bearer ', '') : null;
+
     if (!token) {
       return errorResponse(res, 401, "Access token required");
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = safeVerify(token);
+
+    if (!decoded) {
+      return errorResponse(res, 401, "Invalid or malformed token");
+    }
 
     if (decoded.type !== 'company') {
       return errorResponse(res, 401, "Company admin access required");
@@ -29,10 +45,10 @@ const authenticate = async (req, res, next) => {
 
     const requiresPlanSelection = !company.subscription_package_id;
     const subscriptionEndDate = moment(company.subscription_end_date);
-
     const isStatusCheckEndpoint = req.path === '/subscription-status' || req.path === '/api/v1/auth/subscription-status';
 
     if (requiresPlanSelection) {
+      // Allow access to select a plan
     } else if (!isStatusCheckEndpoint) {
       const PENDING_STATUSES = ['pending', 'payment_received'];
 
@@ -50,20 +66,24 @@ const authenticate = async (req, res, next) => {
     next();
 
   } catch (error) {
-    return errorResponse(res, 401, "Invalid or expired token");
+    console.error('Auth Error:', error.message);
+    return errorResponse(res, 401, "Authentication failed");
   }
 };
+
 const authenticateStaff = async (req, res, next) => {
   try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
+    const authHeader = req.header('Authorization');
+    const token = authHeader ? authHeader.replace('Bearer ', '') : null;
+
     if (!token) {
       return errorResponse(res, 401, "Access token required");
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = safeVerify(token);
 
-    if (decoded.type !== 'staff') {
-      return errorResponse(res, 401, "Staff access required");
+    if (!decoded || decoded.type !== 'staff') {
+      return errorResponse(res, 401, "Staff access required or invalid token");
     }
 
     const staff = await getStaffById(decoded.id, decoded.company_id);
@@ -86,6 +106,7 @@ const authenticateStaff = async (req, res, next) => {
     next();
 
   } catch (error) {
+    console.error('Auth Staff Error:', error.message);
     return errorResponse(res, 401, "Invalid or expired token");
   }
 };
@@ -102,7 +123,11 @@ const authenticateAny = async (req, res, next) => {
       return errorResponse(res, 401, "Access token required");
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = safeVerify(token);
+
+    if (!decoded) {
+      return errorResponse(res, 401, "Invalid or malformed token");
+    }
 
     if (decoded.type === 'staff') {
       const staff = await getStaffById(decoded.id, decoded.company_id);
@@ -130,7 +155,6 @@ const authenticateAny = async (req, res, next) => {
       req.userType = 'admin';
 
     } else if (decoded.type === 'super_admin') {
-      // FIX 2: Add support for Super Admin
       const superAdmin = await getSuperAdminById(decoded.id);
 
       if (!superAdmin) {
@@ -138,7 +162,7 @@ const authenticateAny = async (req, res, next) => {
       }
 
       req.superAdmin = superAdmin;
-      req.userType = 'super_admin'; // Or strictly just use req.superAdmin depending on your controller logic
+      req.userType = 'super_admin';
 
     } else {
       return errorResponse(res, 401, "Invalid token type");
@@ -146,24 +170,36 @@ const authenticateAny = async (req, res, next) => {
 
     next();
   } catch (error) {
-    console.error("Auth Middleware Error:", error.message);
+    if(error.name !== 'JsonWebTokenError') {
+        console.error("Auth Middleware Error:", error.message);
+    }
     return errorResponse(res, 401, "Invalid or expired token");
   }
 };
 
-const requirePermission = (permissionKey) => {
+const requirePermission = (permissionKey, action = null) => {
   return (req, res, next) => {
     if (req.userType === 'admin') {
       return next();
     }
 
     if (req.staff && req.staff.permissions) {
-      if (req.staff.permissions[permissionKey] === true) {
+      const permission = req.staff.permissions[permissionKey];
+      if (permission === true) {
         return next();
+      }
+
+      if (Array.isArray(permission)) {
+        if (!action) {
+           return next();
+        }
+        if (permission.includes(action)) {
+          return next();
+        }
       }
     }
 
-    return errorResponse(res, 403, "Insufficient permissions");
+    return errorResponse(res, 403, `Insufficient permissions. Access to '${permissionKey}' ${action ? `action '${action}'` : ''} denied.`);
   };
 };
 
@@ -195,9 +231,10 @@ const requireAnyPermission = (permissionKeys) => {
     }
 
     if (req.staff && req.staff.permissions) {
-      const hasAnyPermission = permissionKeys.some(key =>
-        req.staff.permissions[key] === true
-      );
+      const hasAnyPermission = permissionKeys.some(key => {
+        const permission = req.staff.permissions[key];
+        return permission === true || (Array.isArray(permission) && permission.length > 0);
+      });
 
       if (hasAnyPermission) {
         return next();
@@ -215,9 +252,10 @@ const requireAllPermissions = (permissionKeys) => {
     }
 
     if (req.staff && req.staff.permissions) {
-      const hasAllPermissions = permissionKeys.every(key =>
-        req.staff.permissions[key] === true
-      );
+      const hasAllPermissions = permissionKeys.every(key => {
+        const permission = req.staff.permissions[key];
+        return permission === true || (Array.isArray(permission) && permission.length > 0);
+      });
 
       if (hasAllPermissions) {
         return next();
@@ -228,15 +266,22 @@ const requireAllPermissions = (permissionKeys) => {
   };
 };
 
-const requireStaffOrPermission = (permissionKey) => {
+const requireStaffOrPermission = (permissionKey, action = null) => {
   return (req, res, next) => {
     if (req.userType === 'admin') {
       return next();
     }
 
     if (req.userType === 'staff' && req.staff && req.staff.permissions) {
-      if (req.staff.permissions[permissionKey] === true) {
+      const permission = req.staff.permissions[permissionKey];
+
+      if (permission === true) {
         return next();
+      }
+
+      if (Array.isArray(permission)) {
+        if (!action) return next();
+        if (permission.includes(action)) return next();
       }
     }
 

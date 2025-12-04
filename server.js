@@ -33,6 +33,7 @@ const { globalLogActivity, logError } = require('./src/middleware/loggingMiddlew
 const { startNotificationCron } = require('./src/utils/notificationCron');
 const { attachTimezone, attachTimezoneForSuperAdmin } = require('./src/middleware/timezoneMiddleware');
 const { startPaymentReminderCron } = require('./src/jobs/paymentReminders');
+const { startFollowUpReminderCron } = require('./src/jobs/followUpReminders');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -175,6 +176,7 @@ const startServer = async () => {
     startNotificationCron();
     startSubscriptionCron();
     startPaymentReminderCron();
+    startFollowUpReminderCron();
 
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);

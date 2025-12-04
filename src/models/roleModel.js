@@ -6,11 +6,11 @@ const createDefaultRoles = async (companyId) => {
       role_name: 'Admin',
       description: 'Full access to all features and settings',
       permissions: {
-        "user_management": true,
-        "lead_management": true,
-        "reports": true,
-        "settings": true,
-        "role_management": true
+        "user_management": ["view", "create", "update", "delete", "manage_status"],
+        "lead_management": ["view", "create", "update", "delete", "import", "export", "transfer", "assign", "manage_settings"],
+        "reports": ["view", "export"],
+        "settings": ["view", "update"],
+        "role_management": ["view", "create", "update", "delete"]
       },
       is_default: true
     },
@@ -18,11 +18,11 @@ const createDefaultRoles = async (companyId) => {
       role_name: 'Manager',
       description: 'Manage staff and leads with reporting access',
       permissions: {
-        "user_management": true,
-        "lead_management": true,
-        "reports": true,
-        "settings": false,
-        "role_management": false
+        "user_management": ["view", "create", "update", "manage_status"],
+        "lead_management": ["view", "create", "update", "delete", "import", "export", "transfer", "assign"],
+        "reports": ["view", "export"],
+        "settings": [],
+        "role_management": []
       },
       is_default: true
     },
@@ -30,11 +30,11 @@ const createDefaultRoles = async (companyId) => {
       role_name: 'Staff',
       description: 'Basic lead management access',
       permissions: {
-        "user_management": false,
-        "lead_management": true,
-        "reports": false,
-        "settings": false,
-        "role_management": false
+        "user_management": [],
+        "lead_management": ["view", "create", "update"],
+        "reports": [],
+        "settings": [],
+        "role_management": []
       },
       is_default: true
     }
@@ -188,9 +188,21 @@ const getRolePermissions = async (roleId) => {
   return null;
 };
 
-const hasPermission = (userPermissions, permissionKey) => {
+const hasPermission = (userPermissions, moduleKey, action = null) => {
   if (!userPermissions || typeof userPermissions !== 'object') return false;
-  return userPermissions[permissionKey] === true;
+
+  const modulePermission = userPermissions[moduleKey];
+
+  if (modulePermission === true) return true;
+
+  if (!modulePermission) return false;
+
+  if (Array.isArray(modulePermission)) {
+    if (!action) return modulePermission.length > 0;
+    return modulePermission.includes(action);
+  }
+
+  return false;
 };
 
 const getStaffCountByRole = async (companyId) => {
@@ -222,27 +234,59 @@ const getAvailablePermissions = () => {
     {
       key: 'user_management',
       label: 'User Management',
-      description: 'Create, edit, and manage staff members'
+      description: 'Create, edit, and manage staff members',
+      actions: [
+        { key: 'view', label: 'View Staff' },
+        { key: 'create', label: 'Create Staff' },
+        { key: 'update', label: 'Edit Staff' },
+        { key: 'delete', label: 'Delete Staff' },
+        { key: 'manage_status', label: 'Manage Status (Active/Suspend)' }
+      ]
     },
     {
       key: 'lead_management',
       label: 'Lead Management',
-      description: 'View, create, edit, and manage leads'
+      description: 'View, create, edit, and manage leads',
+      actions: [
+        { key: 'view', label: 'View Leads' },
+        { key: 'create', label: 'Create Leads' },
+        { key: 'update', label: 'Edit Leads' },
+        { key: 'delete', label: 'Delete Leads' },
+        { key: 'import', label: 'Bulk Import' },
+        { key: 'export', label: 'Export Data' },
+        { key: 'transfer', label: 'Transfer Leads' },
+        { key: 'assign', label: 'Assign Leads' },
+        { key: 'manage_settings', label: 'Manage Settings (Status/Sources)' }
+      ]
     },
     {
       key: 'reports',
       label: 'Reports',
-      description: 'Access to reports and analytics'
+      description: 'Access to reports and analytics',
+      actions: [
+        { key: 'view', label: 'View Reports' },
+        { key: 'export', label: 'Export Reports' }
+      ]
     },
     {
       key: 'settings',
       label: 'Settings',
-      description: 'Manage company settings and configuration'
+      description: 'Manage company settings and configuration',
+      actions: [
+        { key: 'view', label: 'View Settings' },
+        { key: 'update', label: 'Update Settings' }
+      ]
     },
     {
       key: 'role_management',
       label: 'Role Management',
-      description: 'Create, edit, and manage user roles'
+      description: 'Create, edit, and manage user roles',
+      actions: [
+        { key: 'view', label: 'View Roles' },
+        { key: 'create', label: 'Create Roles' },
+        { key: 'update', label: 'Edit Roles' },
+        { key: 'delete', label: 'Delete Roles' }
+      ]
     }
   ];
 };

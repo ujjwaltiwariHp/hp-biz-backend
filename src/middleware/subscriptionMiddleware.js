@@ -14,11 +14,6 @@ const getCompanySubscriptionAndUsage = async (req, res, next) => {
     try {
         const companyId = req.company.id;
         const packageData = req.company;
-
-        if (!packageData.subscription_package_id) {
-        //
-        }
-
         const [currentStaffCount, leadsThisMonth] = await Promise.all([
             getCurrentStaffCount(companyId),
             getLeadsCreatedThisMonth(companyId)
@@ -44,7 +39,10 @@ const getCompanySubscriptionAndUsage = async (req, res, next) => {
 
         next();
     } catch (error) {
-        console.error('Subscription/Usage Fetch Error:', error);
+        console.error('Subscription/Usage Fetch Error:', error.message);
+        if (error.message.includes('timeout')) {
+             return errorResponse(res, 503, 'System busy, please try again momentarily.');
+        }
         return errorResponse(res, 500, 'Internal error during subscription validation.');
     }
 };

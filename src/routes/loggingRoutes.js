@@ -6,12 +6,15 @@ const {
   getActivityDashboard,
   getStaffActivitySummary,
   exportLogs,
-  cleanupOldLogs
+  cleanupOldLogs,
+  getFilterOptions
 } = require("../controllers/loggingController");
 const { authenticateAny, adminOnly, requirePermission } = require("../middleware/auth");
 const { attachTimezone } = require('../middleware/timezoneMiddleware');
 
 const timezoneChain = [authenticateAny, attachTimezone];
+
+router.get("/filters", ...timezoneChain, getFilterOptions);
 
 router.get("/activity", ...timezoneChain, getUserLogs);
 

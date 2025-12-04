@@ -19,16 +19,19 @@ const { attachTimezone } = require('../middleware/timezoneMiddleware');
 const router = express.Router();
 
 const timezoneChain = [authenticateAny, attachTimezone];
-const permissionChain = [authenticateAny, attachTimezone, requirePermission('lead_management')];
 
-router.get('/settings', ...timezoneChain, getDistributionSettings);
-router.put('/update/settings', ...permissionChain, updateDistributionSettings);
-router.post('/assign/manual', ...permissionChain, manualAssignLeads);
-router.post('/assign/automatic', ...permissionChain, automaticAssignLeads);
-router.post('/assign/round-robin', ...permissionChain, logActivity, roundRobinAssignLeads);
-router.post('/assign/performance-based', ...permissionChain, logActivity, performanceBasedAssignLeads);
-router.get('/staff/workload', ...timezoneChain, getStaffWorkload);
-router.get('/unassigned', ...timezoneChain, getUnassignedLeads);
-router.get('/assignment-history', ...permissionChain, getLeadAssignmentHistory);
+router.get('/settings', ...timezoneChain, requirePermission('lead_management', 'view'), getDistributionSettings);
+router.put('/update/settings', ...timezoneChain, requirePermission('lead_management', 'manage_settings'), updateDistributionSettings);
+
+router.post('/assign/manual', ...timezoneChain, requirePermission('lead_management', 'assign'), manualAssignLeads);
+
+router.post('/assign/automatic', ...timezoneChain, requirePermission('lead_management', 'assign'), automaticAssignLeads);
+router.post('/assign/round-robin', ...timezoneChain, requirePermission('lead_management', 'assign'), logActivity, roundRobinAssignLeads);
+router.post('/assign/performance-based', ...timezoneChain, requirePermission('lead_management', 'assign'), logActivity, performanceBasedAssignLeads);
+
+router.get('/staff/workload', ...timezoneChain, requirePermission('lead_management', 'view'), getStaffWorkload);
+router.get('/unassigned', ...timezoneChain, requirePermission('lead_management', 'view'), getUnassignedLeads);
+
+router.get('/assignment-history', ...timezoneChain, requirePermission('lead_management', 'view'), getLeadAssignmentHistory);
 
 module.exports = router;

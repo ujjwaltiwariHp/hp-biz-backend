@@ -1,5 +1,5 @@
 const Lead = require("../models/leadsModel");
-const { successResponse } = require("../utils/responseFormatter");
+const { successResponse, successResponseWithPagination } = require("../utils/responseFormatter");
 const { errorResponse } = require("../utils/errorResponse");
 const NotificationService = require("../services/notificationService");
 const { parseAndConvertToUTC } = require('../utils/timezoneHelper');
@@ -375,7 +375,6 @@ const updateLeadStatus = async (req, res) => {
       const oldStatus = await Lead.getStatusNameById(oldStatusId, companyId);
       const newStatus = await Lead.getStatusNameById(status_id, companyId);
 
-      await Lead.trackLeadStatusChange(req.params.id, oldStatusId, status_id, trackingUserId, companyId);
       await NotificationService.createLeadStatusChangeNotification(
         req.params.id,
         oldStatus,
@@ -390,6 +389,20 @@ const updateLeadStatus = async (req, res) => {
         trackingUserId,
         companyId
       );
+
+      const adminId = await NotificationService.getAdminStaffId(companyId);
+      if (adminId) {
+        const leadName = `${currentLead.first_name} ${currentLead.last_name}`;
+        await NotificationService.sendPushNotification(adminId, {
+          title: "Status Update",
+          body: `Status Update: ${leadName} marked as ${newStatus}`,
+          data: {
+            leadId: String(req.params.id),
+            type: 'status_change',
+            companyId: String(companyId)
+          }
+        }, 'staff'); // sending to admin as staff/user
+      }
     }
 
     sseService.publish(`c_${companyId}`, 'leads_list_refresh', { action: 'status_updated', leadId: req.params.id, newStatusId: status_id });
@@ -403,8 +416,25 @@ const updateLeadStatus = async (req, res) => {
 const getLeads = async (req, res) => {
   try {
     const companyId = req.company.id;
-    const leads = await Lead.getLeadsWithTags(companyId);
-    return successResponse(res, "Leads fetched successfully", leads, 200, req);
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 15;
+    const offset = (page - 1) * limit;
+    const [leads, totalCount] = await Promise.all([
+      Lead.getLeadsWithTags(companyId, limit, offset),
+      Lead.getLeadsTotalCount(companyId)
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return successResponseWithPagination(res, "Leads fetched successfully", leads, {
+      page,
+      limit,
+      total_records: parseInt(totalCount),
+      total_pages: totalPages,
+      has_next: page < totalPages,
+      has_prev: page > 1
+    }, 200, req);
+
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }

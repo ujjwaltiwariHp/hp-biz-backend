@@ -572,25 +572,30 @@ const searchLeads = async (companyId, filters) => {
   return result.rows;
 };
 
-const getLeadsWithTags = async (companyId) => {
+const getLeadsWithTags = async (companyId, limit = 15, offset = 0) => {
   await ensureDefaultTagsExist(companyId);
-
   const result = await pool.query(
-    `SELECT l.id, l.first_name, l.last_name, l.email, l.phone, l.created_at,
+    `WITH paged_leads AS (
+       SELECT id FROM leads
+       WHERE company_id = $1
+       ORDER BY created_at DESC
+       LIMIT $2 OFFSET $3
+     )
+     SELECT l.id, l.first_name, l.last_name, l.email, l.phone, l.created_at,
             l.lead_data,
             ls.source_name as lead_source,
             lt.status_name as lead_status,
             s.first_name as assigned_staff_first_name,
             ltag.tag_name as tag
-     FROM leads l
+     FROM paged_leads pl
+     JOIN leads l ON pl.id = l.id
      LEFT JOIN lead_sources ls ON l.lead_source_id = ls.id
      LEFT JOIN lead_statuses lt ON l.status_id = lt.id
      LEFT JOIN staff s ON l.assigned_to = s.id
      LEFT JOIN lead_tag_mappings ltm ON l.id = ltm.lead_id
      LEFT JOIN lead_tags ltag ON ltm.tag_id = ltag.id
-     WHERE l.company_id = $1
      ORDER BY l.created_at DESC`,
-    [companyId]
+    [companyId, limit, offset]
   );
   return result.rows;
 };

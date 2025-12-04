@@ -2,6 +2,73 @@ const Notifications = require("../models/notificationsModel");
 const { createNotification: createSuperAdminNotification } = require('../models/super-admin-models/notificationModel');
 const { sendNotificationEmail, sendAdminNotificationEmail, sendSubscriptionActivationEmail } = require("./emailService");
 const pool = require("../config/database");
+const admin = require('../config/firebase');
+const { getTokensByUserIds, deleteDeviceToken } = require('../models/deviceTokenModel');
+
+const sendPushNotification = async (userIds, payload, userType = 'staff') => {
+  if (!userIds || (Array.isArray(userIds) && userIds.length === 0)) return;
+
+  const targetIds = Array.isArray(userIds) ? userIds : [userIds];
+
+  try {
+    const tokens = await getTokensByUserIds(targetIds, userType);
+
+    if (tokens.length === 0) {
+        console.log(`No devices found for User IDs: ${targetIds}`);
+        return;
+    }
+
+    console.log(`Attempting to send Push to ${tokens.length} devices...`);
+
+    const message = {
+      notification: {
+        title: payload.title,
+        body: payload.body
+      },
+      data: {
+        ...payload.data,
+        click_action: 'FLUTTER_NOTIFICATION_CLICK'
+      },
+      android: {
+        priority: 'high'
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1
+          }
+        }
+      },
+      tokens: tokens
+    };
+
+    const response = await admin.messaging().sendEachForMulticast(message);
+
+    console.log('Firebase Response:', JSON.stringify(response.responses));
+
+    if (response.failureCount > 0) {
+      console.log(`Failed to send to ${response.failureCount} devices.`);
+      const failedTokens = [];
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success) {
+          const errorInfo = resp.error;
+          console.log('FCM Send Error:', errorInfo);
+          if (errorInfo.code === 'messaging/registration-token-not-registered' ||
+              errorInfo.code === 'messaging/invalid-argument') {
+            failedTokens.push(tokens[idx]);
+          }
+        }
+      });
+
+      if (failedTokens.length > 0) {
+        await Promise.all(failedTokens.map(token => deleteDeviceToken(token)));
+      }
+    }
+  } catch (error) {
+    console.error('Push Notification System Error:', error);
+  }
+};
 
 const createLeadStatusChangeNotification = async (leadId, oldStatus, newStatus, changedBy, companyId) => {
   try {
@@ -39,36 +106,20 @@ const createLeadStatusChangeNotification = async (leadId, oldStatus, newStatus, 
         priority: "normal"
       });
     }
-    const companyResult = await pool.query(
-      `SELECT admin_email, company_name FROM companies WHERE id = $1`,
-      [companyId]
-    );
-
-    if (companyResult.rows.length > 0) {
-      const companyEmail = companyResult.rows[0].admin_email;
-      const companyName = companyResult.rows[0].company_name;
-
-      const adminResult = await pool.query(
-        `SELECT s.id FROM staff s
-         INNER JOIN companies c ON s.company_id = c.id
-         WHERE c.id = $1 AND s.email = c.admin_email`,
-        [companyId]
-      );
-
-      if (adminResult.rows.length > 0 && adminResult.rows[0].id !== changedBy) {
-        await sendAdminNotificationEmail(
-          companyEmail,
-          companyName,
-          "Lead Status Updated",
-          `${changedByName} changed status of lead ${lead.first_name} ${lead.last_name} from "${oldStatus}" to "${newStatus}"`
-        );
-      }
-    }
 
     if (notifications.length > 0) {
       await Notifications.createBulkNotifications(notifications);
+
       await Promise.all(notifications.map(notification =>
-        sendNotificationEmail(notification.staff_id, companyId, notification.title, notification.message)
+        sendPushNotification(notification.staff_id, {
+            title: notification.title,
+            body: notification.message,
+            data: {
+              leadId: String(leadId),
+              type: 'status_change',
+              companyId: String(companyId)
+            }
+        })
       ));
     }
   } catch (error) {
@@ -101,7 +152,6 @@ const createLeadAssignmentNotification = async (leadId, assignedTo, assignedBy, 
 
     if (assignedStaffResult.rows.length === 0) return;
 
-    const assignedStaffName = `${assignedStaffResult.rows[0].first_name} ${assignedStaffResult.rows[0].last_name}`;
     const assignedByName = assignedByResult.rows.length > 0
       ? `${assignedByResult.rows[0].first_name} ${assignedByResult.rows[0].last_name}`
       : 'Admin';
@@ -120,36 +170,19 @@ const createLeadAssignmentNotification = async (leadId, assignedTo, assignedBy, 
       });
     }
 
-    const companyResult = await pool.query(
-      `SELECT admin_email, company_name FROM companies WHERE id = $1`,
-      [companyId]
-    );
-
-    if (companyResult.rows.length > 0) {
-      const companyEmail = companyResult.rows[0].admin_email;
-      const companyName = companyResult.rows[0].company_name;
-
-      const adminResult = await pool.query(
-        `SELECT s.id FROM staff s
-         INNER JOIN companies c ON s.company_id = c.id
-         WHERE c.id = $1 AND s.email = c.admin_email`,
-        [companyId]
-      );
-
-      if (adminResult.rows.length > 0 && adminResult.rows[0].id !== assignedBy) {
-        await sendAdminNotificationEmail(
-          companyEmail,
-          companyName,
-          "Lead Assignment",
-          `${assignedByName} assigned lead ${lead.first_name} ${lead.last_name} to ${assignedStaffName}`
-        );
-      }
-    }
-
     if (notifications.length > 0) {
       await Notifications.createBulkNotifications(notifications);
+
       await Promise.all(notifications.map(notification =>
-        sendNotificationEmail(notification.staff_id, companyId, notification.title, notification.message)
+        sendPushNotification(notification.staff_id, {
+          title: notification.title,
+          body: notification.message,
+          data: {
+            leadId: String(leadId),
+            type: 'lead_assignment',
+            companyId: String(companyId)
+          }
+        })
       ));
     }
   } catch (error) {
@@ -181,7 +214,6 @@ const createBulkAssignmentNotification = async (leadIds, assignedTo, assignedBy,
 
     if (assignedStaffResult.rows.length === 0) return;
 
-    const assignedStaffName = `${assignedStaffResult.rows[0].first_name} ${assignedStaffResult.rows[0].last_name}`;
     const assignedByName = assignedByResult.rows.length > 0
       ? `${assignedByResult.rows[0].first_name} ${assignedByResult.rows[0].last_name}`
       : 'Admin';
@@ -199,36 +231,20 @@ const createBulkAssignmentNotification = async (leadIds, assignedTo, assignedBy,
         priority: "high"
       });
     }
-    const companyResult = await pool.query(
-      `SELECT admin_email, company_name FROM companies WHERE id = $1`,
-      [companyId]
-    );
-
-    if (companyResult.rows.length > 0) {
-      const companyEmail = companyResult.rows[0].admin_email;
-      const companyName = companyResult.rows[0].company_name;
-
-      const adminResult = await pool.query(
-        `SELECT s.id FROM staff s
-         INNER JOIN companies c ON s.company_id = c.id
-         WHERE c.id = $1 AND s.email = c.admin_email`,
-        [companyId]
-      );
-
-      if (adminResult.rows.length > 0 && adminResult.rows[0].id !== assignedBy) {
-        await sendAdminNotificationEmail(
-          companyEmail,
-          companyName,
-          "Bulk Lead Assignment",
-          `${assignedByName} assigned ${leadCount} leads to ${assignedStaffName}`
-        );
-      }
-    }
 
     if (notifications.length > 0) {
       await Notifications.createBulkNotifications(notifications);
+
       await Promise.all(notifications.map(notification =>
-        sendNotificationEmail(notification.staff_id, companyId, notification.title, notification.message)
+        sendPushNotification(notification.staff_id, {
+          title: notification.title,
+          body: notification.message,
+          data: {
+            type: 'bulk_assignment',
+            count: String(leadCount),
+            companyId: String(companyId)
+          }
+        })
       ));
     }
   } catch (error) {
@@ -267,27 +283,17 @@ const createCustomNotification = async (companyId, staffIdOrType, title, message
         priority
       });
 
-      await sendNotificationEmail(staffId, companyId, title, message);
+      await sendPushNotification(staffId, {
+        title: title,
+        body: message,
+        data: {
+          type: type,
+          leadId: relatedLeadId ? String(relatedLeadId) : '',
+          companyId: String(companyId)
+        }
+      });
     }));
 
-    if (staffIdOrType === 'admin' || Array.isArray(staffIdOrType)) {
-      const companyResult = await pool.query(
-        `SELECT admin_email, company_name FROM companies WHERE id = $1`,
-        [companyId]
-      );
-
-      if (companyResult.rows.length > 0) {
-        const companyEmail = companyResult.rows[0].admin_email;
-        const companyName = companyResult.rows[0].company_name;
-
-        await sendAdminNotificationEmail(
-          companyEmail,
-          companyName,
-          title,
-          message
-        );
-      }
-    }
   } catch (error) {
     console.error('Error creating custom notification:', error);
   }
@@ -341,35 +347,20 @@ const createLeadActivityNotification = async (leadId, activityType, staffId, com
         priority: "low"
       });
     }
-    const companyResult = await pool.query(
-      `SELECT admin_email, company_name FROM companies WHERE id = $1`,
-      [companyId]
-    );
-
-    if (companyResult.rows.length > 0) {
-      const companyEmail = companyResult.rows[0].admin_email;
-      const companyName = companyResult.rows[0].company_name;
-      const adminResult = await pool.query(
-        `SELECT s.id FROM staff s
-         INNER JOIN companies c ON s.company_id = c.id
-         WHERE c.id = $1 AND s.email = c.admin_email`,
-        [companyId]
-      );
-
-      if (adminResult.rows.length > 0 && adminResult.rows[0].id !== staffId) {
-        await sendAdminNotificationEmail(
-          companyEmail,
-          companyName,
-          "Staff Activity",
-          message
-        );
-      }
-    }
 
     if (notifications.length > 0) {
       await Notifications.createBulkNotifications(notifications);
+
       await Promise.all(notifications.map(notification =>
-        sendNotificationEmail(notification.staff_id, companyId, notification.title, notification.message)
+        sendPushNotification(notification.staff_id, companyId, {
+            title: notification.title,
+            body: notification.message,
+            data: {
+                leadId: String(leadId),
+                type: 'lead_activity',
+                companyId: String(companyId)
+            }
+        })
       ));
     }
   } catch (error) {
@@ -405,7 +396,6 @@ const createLeadCreationNotification = async (leadId, createdBy, companyId) => {
 
     if (companyResult.rows.length > 0) {
       const companyEmail = companyResult.rows[0].admin_email;
-      const companyName = companyResult.rows[0].company_name;
       const adminResult = await pool.query(
         `SELECT s.id FROM staff s
          INNER JOIN companies c ON s.company_id = c.id
@@ -424,7 +414,15 @@ const createLeadCreationNotification = async (leadId, createdBy, companyId) => {
           priority: "normal"
         });
 
-        await sendNotificationEmail(adminResult.rows[0].id, companyId, "New Lead Created", `${creatorName} created a new lead: ${lead.first_name} ${lead.last_name}`);
+        await sendPushNotification(adminResult.rows[0].id, {
+            title: "New Lead Created",
+            body: `${creatorName} created a new lead: ${lead.first_name} ${lead.last_name}`,
+            data: {
+                leadId: String(leadId),
+                type: 'lead_creation',
+                companyId: String(companyId)
+            }
+        });
       }
     }
   } catch (error) {
@@ -468,36 +466,19 @@ const createLeadUpdateNotification = async (leadId, updatedBy, companyId, update
       });
     }
 
-    const companyResult = await pool.query(
-      `SELECT admin_email, company_name FROM companies WHERE id = $1`,
-      [companyId]
-    );
-
-    if (companyResult.rows.length > 0) {
-      const companyEmail = companyResult.rows[0].admin_email;
-      const companyName = companyResult.rows[0].company_name;
-
-      const adminResult = await pool.query(
-        `SELECT s.id FROM staff s
-         INNER JOIN companies c ON s.company_id = c.id
-         WHERE c.id = $1 AND s.email = c.admin_email`,
-        [companyId]
-      );
-
-      if (adminResult.rows.length > 0 && adminResult.rows[0].id !== updatedBy) {
-        await sendAdminNotificationEmail(
-          companyEmail,
-          companyName,
-          "Lead Updated by Staff",
-          `${updaterName} updated lead ${lead.first_name} ${lead.last_name}: ${updateDescription}`
-        );
-      }
-    }
-
     if (notifications.length > 0) {
       await Notifications.createBulkNotifications(notifications);
+
       await Promise.all(notifications.map(notification =>
-        sendNotificationEmail(notification.staff_id, companyId, notification.title, notification.message)
+        sendPushNotification(notification.staff_id, {
+            title: notification.title,
+            body: notification.message,
+            data: {
+                leadId: String(leadId),
+                type: 'lead_update',
+                companyId: String(companyId)
+            }
+        })
       ));
     }
   } catch (error) {
@@ -531,7 +512,7 @@ const createSubscriptionActivationNotification = async (companyData, packageData
     });
 
   } catch (error) {
-    console.error('Error creating subscription activation notification (Notification Log Failed):', error);
+    console.error('Error creating subscription activation notification:', error);
   }
 };
 
@@ -558,10 +539,46 @@ const createPaymentReceivedNotification = async (companyData, invoiceData, verif
       }
     });
 
-    console.log(`Notification created: Payment verified for ${company_name}`);
-
   } catch (error) {
     console.error('Error creating payment received notification:', error);
+  }
+};
+
+const createFollowUpNotification = async (leadId, assignedTo, createdBy, companyId, reminderTime) => {
+  try {
+    const leadResult = await pool.query(
+      `SELECT l.first_name, l.last_name FROM leads l WHERE l.id = $1 AND l.company_id = $2`,
+      [leadId, companyId]
+    );
+
+    if (leadResult.rows.length === 0) return;
+    const lead = leadResult.rows[0];
+
+    const leadName = `${lead.first_name} ${lead.last_name}`;
+    const message = `New follow-up set for lead: ${leadName}`;
+
+    await Notifications.createNotification({
+      company_id: companyId,
+      staff_id: assignedTo,
+      title: "Follow-up Set",
+      message: message,
+      type: "follow_up_set",
+      related_lead_id: leadId,
+      priority: "normal"
+    });
+
+    await sendPushNotification(assignedTo, {
+      title: "Follow-up Set",
+      body: message,
+      data: {
+        leadId: String(leadId),
+        type: 'follow_up',
+        companyId: String(companyId)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error creating follow-up notification:', error);
   }
 };
 
@@ -574,5 +591,7 @@ module.exports = {
   createLeadCreationNotification,
   createLeadUpdateNotification,
   createSubscriptionActivationNotification,
-  createPaymentReceivedNotification
+  createPaymentReceivedNotification,
+  createFollowUpNotification,
+  sendPushNotification
 };
