@@ -66,7 +66,9 @@ const authenticate = async (req, res, next) => {
     next();
 
   } catch (error) {
-    console.error('Auth Error:', error.message);
+    if (error.name !== 'JsonWebTokenError' && !error.message.includes('jwt') && !error.message.includes('token')) {
+        console.error('Auth Error:', error.message);
+    }
     return errorResponse(res, 401, "Authentication failed");
   }
 };
@@ -106,7 +108,9 @@ const authenticateStaff = async (req, res, next) => {
     next();
 
   } catch (error) {
-    console.error('Auth Staff Error:', error.message);
+    if (error.name !== 'JsonWebTokenError' && !error.message.includes('jwt') && !error.message.includes('token')) {
+        console.error('Auth Staff Error:', error.message);
+    }
     return errorResponse(res, 401, "Invalid or expired token");
   }
 };
@@ -170,7 +174,7 @@ const authenticateAny = async (req, res, next) => {
 
     next();
   } catch (error) {
-    if(error.name !== 'JsonWebTokenError') {
+    if (error.name !== 'JsonWebTokenError' && !error.message.includes('jwt') && !error.message.includes('token')) {
         console.error("Auth Middleware Error:", error.message);
     }
     return errorResponse(res, 401, "Invalid or expired token");
