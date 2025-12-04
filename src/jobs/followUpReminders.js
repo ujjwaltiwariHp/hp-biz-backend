@@ -48,18 +48,22 @@ const checkAndSendFollowUpReminders = async () => {
 
         reminderCount++;
       } catch (err) {
-        console.error(`Failed to send reminder for ID ${reminder.id}:`, err);
+        console.error(`Failed to process reminder ID ${reminder.id}:`, err.message);
       }
     }
 
     if (reminderCount > 0) {
-      await logSystemEvent({
-        company_id: null,
-        staff_id: null,
-        log_level: 'INFO',
-        log_category: 'CRON_REMINDER',
-        message: `Sent ${reminderCount} follow-up push notifications.`
-      });
+      try {
+        await logSystemEvent({
+          company_id: null,
+          staff_id: null,
+          log_level: 'INFO',
+          log_category: 'CRON_REMINDER',
+          message: `Sent ${reminderCount} follow-up push notifications.`
+        });
+      } catch (logErr) {
+        console.error('Failed to log system event:', logErr.message);
+      }
     }
 
   } catch (error) {

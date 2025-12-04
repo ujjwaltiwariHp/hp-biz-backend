@@ -7,9 +7,9 @@ const pool = new Pool({
     require: true,
     rejectUnauthorized: false,
   },
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 20000,
+  max: 10,
+  idleTimeoutMillis: 2000,
+  connectionTimeoutMillis: 30000,
   allowExitOnIdle: false,
   keepAlive: true
 });
@@ -18,7 +18,7 @@ pool.on('connect', () => {
 });
 
 pool.on('error', (err, client) => {
-  console.error('Unexpected error on idle client', err);
+  console.error('Unexpected error on idle client', err.message);
 });
 
 module.exports = pool;
