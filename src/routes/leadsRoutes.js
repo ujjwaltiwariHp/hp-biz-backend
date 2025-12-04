@@ -51,42 +51,44 @@ const {
     checkLeadLimit,
     requireFeature
 } = require('../middleware/subscriptionMiddleware');
-const { validate } = require('node-cron');
 
 const router = express.Router();
 
 const timezoneChain = [authenticateAny, attachTimezone];
 const subscriptionChain = [authenticateAny, attachTimezone, getCompanySubscriptionAndUsage, checkSubscriptionActive];
-const permissionChain = [...subscriptionChain, requirePermission('lead_management')];
+const settingsPermission = [...subscriptionChain, requirePermission('lead_management', 'manage_settings')];
 
 router.get('/sources', ...subscriptionChain, getLeadSources);
 router.get('/sources/:id', ...subscriptionChain, getLeadSourceById);
-router.post('/sources/create', ...permissionChain, logActivity, createLeadSource);
-router.put('/sources/update/:id', ...permissionChain, logActivity, updateLeadSource);
-router.delete('/sources/delete/:id', ...permissionChain, logActivity, deleteLeadSource);
+router.post('/sources/create', ...settingsPermission, logActivity, createLeadSource);
+router.put('/sources/update/:id', ...settingsPermission, logActivity, updateLeadSource);
+router.delete('/sources/delete/:id', ...settingsPermission, logActivity, deleteLeadSource);
+router.put('/sources/toggle/:id', ...settingsPermission, logActivity, toggleLeadSource);
 
 router.get('/statuses', ...subscriptionChain, getLeadStatuses);
 router.get('/statuses/:id', ...subscriptionChain, getLeadStatusById);
-router.post('/statuses/create', ...permissionChain, logActivity, createLeadStatus);
-router.put('/statuses/update/:id', ...permissionChain, updateLeadStatusRecord);
-router.delete('/statuses/delete/:id', ...permissionChain, logActivity, deleteLeadStatus);
-router.put('/statuses/toggle/:id', ...permissionChain, logActivity, toggleLeadStatus);
-router.put('/sources/toggle/:id', ...permissionChain, logActivity, toggleLeadSource);
+router.post('/statuses/create', ...settingsPermission, logActivity, createLeadStatus);
+router.put('/statuses/update/:id', ...settingsPermission, updateLeadStatusRecord);
+router.delete('/statuses/delete/:id', ...settingsPermission, logActivity, deleteLeadStatus);
+router.put('/statuses/toggle/:id', ...settingsPermission, logActivity, toggleLeadStatus);
 
 router.post('/create',
-    ...permissionChain,
+    ...subscriptionChain,
+    requirePermission('lead_management', 'create'),
     checkLeadLimit,
     createLead
 );
 
 router.get('/bulk-upload/sample',
-    ...permissionChain,
+    ...subscriptionChain,
+    requirePermission('lead_management', 'import'),
     requireFeature('bulk_upload'),
     downloadSampleCsv
 );
 
 router.post('/bulk-upload',
-    ...permissionChain,
+    ...subscriptionChain,
+    requirePermission('lead_management', 'import'),
     requireFeature('bulk_upload'),
     bulkUploadMiddleware,
     checkLeadLimit,
@@ -94,37 +96,36 @@ router.post('/bulk-upload',
     bulkUploadLeads
 );
 
-router.get('/get', ...subscriptionChain, getLeads);
-router.get('/get/:id', ...subscriptionChain, getLeadById);
-router.put('/update/:id', ...permissionChain, updateLead);
-router.put('/update/status/:id', ...permissionChain, updateLeadStatus);
-router.delete('/delete/:id', ...permissionChain, logActivity, deleteLead);
-router.get('/search', ...permissionChain, searchLeads);
+router.get('/get', ...subscriptionChain, requirePermission('lead_management', 'view'), getLeads);
+router.get('/get/:id', ...subscriptionChain, requirePermission('lead_management', 'view'), getLeadById);
+router.get('/search', ...subscriptionChain, requirePermission('lead_management', 'view'), searchLeads);
+router.get('/:id/details', ...subscriptionChain, requirePermission('lead_management', 'view'), getLeadDetails);
+router.get('/:id/history', ...subscriptionChain, requirePermission('lead_management', 'view'), getLeadHistory);
 
-router.get('/:id/assignment-history', ...permissionChain, getLeadAssignmentHistory);
+router.put('/update/:id', ...subscriptionChain, requirePermission('lead_management', 'update'), updateLead);
+router.put('/update/status/:id', ...subscriptionChain, requirePermission('lead_management', 'update'), updateLeadStatus);
+router.delete('/delete/:id', ...subscriptionChain, requirePermission('lead_management', 'delete'), logActivity, deleteLead);
+router.get('/:id/assignment-history', ...subscriptionChain, requirePermission('lead_management', 'view'), getLeadAssignmentHistory);
+
+router.post('/transfer', ...subscriptionChain, requirePermission('lead_management', 'transfer'), logActivity, transferLeadController);
 
 router.get('/tags', ...subscriptionChain, getLeadTags);
 router.get('/tags/:id', ...subscriptionChain, getLeadTagById);
-router.post('/:id/tags/apply', ...permissionChain, applyTagToLead);
-router.delete('/:id/tags/:tagId/remove', ...permissionChain, logActivity, removeTagFromLead);
-router.get('/:id/tags', ...permissionChain, getLeadTagsByLeadId);
+router.post('/:id/tags/apply', ...subscriptionChain, requirePermission('lead_management', 'update'), applyTagToLead);
+router.delete('/:id/tags/:tagId/remove', ...subscriptionChain, requirePermission('lead_management', 'update'), logActivity, removeTagFromLead);
+router.get('/:id/tags', ...subscriptionChain, getLeadTagsByLeadId);
 
-router.get('/:id/details', ...subscriptionChain, getLeadDetails);
-router.get('/:id/history', ...subscriptionChain, getLeadHistory);
+router.get('/:id/follow-ups', ...subscriptionChain, requirePermission('lead_management', 'view'), getLeadFollowUps);
+router.post('/:id/follow-ups/create', ...subscriptionChain, requirePermission('lead_management', 'update'), logActivity, createFollowUp);
 
-router.get('/:id/follow-ups', ...subscriptionChain, getLeadFollowUps);
-router.post('/:id/follow-ups/create', ...permissionChain, logActivity, createFollowUp);
+router.get('/follow-ups/details/:id', ...subscriptionChain, requirePermission('lead_management', 'view'), getFollowUpById);
+router.get('/follow-ups', ...subscriptionChain, requirePermission('lead_management', 'view'), getAllFollowUps);
 
-router.get('/follow-ups/details/:id', ...subscriptionChain, getFollowUpById);
-router.get('/follow-ups', ...subscriptionChain, getAllFollowUps);
+router.put('/follow-ups/:id/update', ...subscriptionChain, requirePermission('lead_management', 'update'), updateFollowUp);
+router.delete('/follow-ups/:id/delete', ...subscriptionChain, requirePermission('lead_management', 'update'), logActivity, deleteFollowUp);
+router.patch('/follow-ups/:id/complete', ...subscriptionChain, requirePermission('lead_management', 'update'), logActivity, markFollowUpComplete);
 
-router.put('/follow-ups/:id/update', ...permissionChain, updateFollowUp);
-router.delete('/follow-ups/:id/delete', ...permissionChain, logActivity, deleteFollowUp);
-router.patch('/follow-ups/:id/complete', ...permissionChain, logActivity, markFollowUpComplete);
-
-
-router.put('/leads/:leadId/followups/:followUpId', updateLeadFollowUp);
-router.delete('/leads/:leadId/followups/:followUpId', deleteLeadFollowUp);
-router.post('/transfer', ...permissionChain, logActivity, transferLeadController);
+router.put('/leads/:leadId/followups/:followUpId', ...subscriptionChain, requirePermission('lead_management', 'update'), updateLeadFollowUp);
+router.delete('/leads/:leadId/followups/:followUpId', ...subscriptionChain, requirePermission('lead_management', 'update'), deleteLeadFollowUp);
 
 module.exports = router;

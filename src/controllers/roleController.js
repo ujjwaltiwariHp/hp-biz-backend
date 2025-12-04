@@ -41,11 +41,34 @@ const createRole = async (req, res) => {
       return errorResponse(res, 400, "Role name and description are required");
     }
 
-    const validPermissions = ['user_management', 'lead_management', 'reports', 'settings', 'role_management'];
+    const validPermissions = {
+      'user_management': ['view', 'create', 'update', 'delete', 'manage_status'],
+      'lead_management': ['view', 'create', 'update', 'delete', 'import', 'export', 'transfer', 'assign', 'manage_settings'],
+      'reports': ['view', 'export'],
+      'settings': ['view', 'update'],
+      'role_management': ['view', 'create', 'update', 'delete']
+    };
+
     const permissionObj = {};
-    validPermissions.forEach(permission => {
-      permissionObj[permission] = permissions && permissions[permission] === true;
-    });
+
+    if (permissions && typeof permissions === 'object') {
+      Object.keys(validPermissions).forEach(moduleKey => {
+        if (permissions[moduleKey]) {
+          const incomingActions = permissions[moduleKey];
+          const validActions = validPermissions[moduleKey];
+
+          if (Array.isArray(incomingActions)) {
+            permissionObj[moduleKey] = incomingActions.filter(action => validActions.includes(action));
+          } else if (incomingActions === true) {
+             permissionObj[moduleKey] = [];
+          } else {
+            permissionObj[moduleKey] = [];
+          }
+        } else {
+          permissionObj[moduleKey] = [];
+        }
+      });
+    }
 
     const roleData = {
       company_id,
@@ -76,11 +99,32 @@ const updateRole = async (req, res) => {
       return errorResponse(res, 400, "Description is required");
     }
 
-    const validPermissions = ['user_management', 'lead_management', 'reports', 'settings', 'role_management'];
+    const validPermissions = {
+      'user_management': ['view', 'create', 'update', 'delete', 'manage_status'],
+      'lead_management': ['view', 'create', 'update', 'delete', 'import', 'export', 'transfer', 'assign', 'manage_settings'],
+      'reports': ['view', 'export'],
+      'settings': ['view', 'update'],
+      'role_management': ['view', 'create', 'update', 'delete']
+    };
+
     const permissionObj = {};
-    validPermissions.forEach(permission => {
-      permissionObj[permission] = permissions && permissions[permission] === true;
-    });
+
+    if (permissions && typeof permissions === 'object') {
+      Object.keys(validPermissions).forEach(moduleKey => {
+        if (permissions[moduleKey]) {
+          const incomingActions = permissions[moduleKey];
+          const validActions = validPermissions[moduleKey];
+
+          if (Array.isArray(incomingActions)) {
+            permissionObj[moduleKey] = incomingActions.filter(action => validActions.includes(action));
+          } else {
+            permissionObj[moduleKey] = [];
+          }
+        } else {
+          permissionObj[moduleKey] = [];
+        }
+      });
+    }
 
     const updateData = {
       role_name: role_name ? role_name.trim() : undefined,
@@ -177,16 +221,19 @@ const createDefaultRoles = async (req, res) => {
 const checkPermission = async (req, res) => {
   try {
     const { permission_key } = req.params;
+    const { action } = req.query;
     const userPermissions = req.staff?.permissions || {};
 
     if (req.userType === 'admin') {
       return successResponse(res, "Permission check completed", { has_permission: true }, 200, req);
     }
 
-    const hasPermission = Role.hasPermission(userPermissions, permission_key);
+    const hasPermission = Role.hasPermission(userPermissions, permission_key, action);
+
     return successResponse(res, "Permission check completed", {
       has_permission: hasPermission,
       permission_key,
+      action: action || 'any',
       user_permissions: userPermissions
     }, 200, req);
   } catch (err) {

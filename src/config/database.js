@@ -7,10 +7,11 @@ const pool = new Pool({
     require: true,
     rejectUnauthorized: false,
   },
-  max: 20, // Maximum number of clients in the pool
+  max: 20,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
-  allowExitOnIdle: false
+  connectionTimeoutMillis: 20000,
+  allowExitOnIdle: false,
+  keepAlive: true
 });
 
 pool.on('connect', () => {
