@@ -1,13 +1,12 @@
 const brevo = require('@getbrevo/brevo');
 const pool = require("../config/database");
-const moment = require('moment-timezone'); // Already imported in related controllers
+const moment = require('moment-timezone');
 
 const apiInstance = new brevo.TransactionalEmailsApi();
 apiInstance.setApiKey(brevo.TransactionalEmailsApiApiKeys.apiKey, process.env.BREVO_API_KEY);
 
-// --- Styling Constants ---
-const PRIMARY_COLOR = '#000000'; // Black
-const ACCENT_COLOR = '#ffcc00'; // Yellow/Gold
+const PRIMARY_COLOR = '#000000';
+const ACCENT_COLOR = '#ffcc00';
 const TEXT_COLOR = '#333333';
 const BG_COLOR = '#f9f9f9';
 const BORDER_COLOR = '#dddddd';
@@ -20,10 +19,8 @@ const BASE_STYLES = `
   border: 1px solid ${BORDER_COLOR};
   border-collapse: collapse;
 `;
-// -------------------------
 
 const formatDate = (date) => new Date(date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-
 
 const getEmailTemplate = (headerTitle, bodyContent, buttonText = null, buttonLink = '#') => {
   return `
@@ -67,7 +64,6 @@ const getEmailTemplate = (headerTitle, bodyContent, buttonText = null, buttonLin
     </table>
   `;
 };
-
 
 const sendSignupOTPEmail = async (email, otp) => {
   const content = `
@@ -113,8 +109,6 @@ const sendResetOTPEmail = async (email, otp) => {
   }
 };
 
-
-
 const sendStaffWelcomeEmail = async (staffEmail, staffName, tempPassword, loginUrl) => {
   const content = `
     <p style="color: ${TEXT_COLOR}; font-size: 16px; line-height: 1.5;">Welcome to HPBIZ, ${staffName}! Your manager has created an account for you. Below are your login credentials:</p>
@@ -138,9 +132,25 @@ const sendStaffWelcomeEmail = async (staffEmail, staffName, tempPassword, loginU
   }
 };
 
-
 const sendNotificationEmail = async (staffId, companyId, title, message) => {
   try {
+    const featureResult = await pool.query(
+      `SELECT sp.features
+       FROM companies c
+       LEFT JOIN subscription_packages sp ON c.subscription_package_id = sp.id
+       WHERE c.id = $1`,
+      [companyId]
+    );
+
+    let features = featureResult.rows[0]?.features || [];
+    if (typeof features === 'string') {
+      try { features = JSON.parse(features); } catch (e) { features = []; }
+    }
+
+    if (!Array.isArray(features) || !features.includes('email_notifications')) {
+      return;
+    }
+
     const staffResult = await pool.query(
       `SELECT s.first_name, s.email, c.company_name
        FROM staff s
@@ -195,7 +205,6 @@ const sendAdminNotificationEmail = async (adminEmail, companyName, title, messag
   }
 };
 
-
 const sendInvoiceEmail = async (invoiceData, pdfBuffer) => {
   try {
     const { billing_email, company_name, invoice_number, total_amount, currency, status, due_date } = invoiceData;
@@ -236,7 +245,6 @@ const sendInvoiceEmail = async (invoiceData, pdfBuffer) => {
   }
 };
 
-
 const sendSubscriptionActivationEmail = async (companyData, packageData, endDate, invoiceData, pdfBuffer) => {
   try {
     const { admin_email, company_name, admin_name } = companyData;
@@ -248,7 +256,7 @@ const sendSubscriptionActivationEmail = async (companyData, packageData, endDate
 
     let featuresList = [];
     if (packageData.features && Array.isArray(packageData.features)) {
-        featuresList = packageData.features.map(f => `<li style="margin-bottom: 5px;">${f.replace(/_/g, ' ')}</li>`).join('');
+      featuresList = packageData.features.map(f => `<li style="margin-bottom: 5px;">${f.replace(/_/g, ' ')}</li>`).join('');
     }
 
     const content = `
@@ -278,10 +286,10 @@ const sendSubscriptionActivationEmail = async (companyData, packageData, endDate
     sendSmtpEmail.htmlContent = getEmailTemplate("Subscription Activated", content, "Go to App Dashboard", loginUrl);
 
     if (pdfBuffer) {
-        sendSmtpEmail.attachment = [{
-            name: `INVOICE-${invoiceData.invoice_number}-PAID.pdf`,
-            content: pdfBuffer.toString('base64')
-        }];
+      sendSmtpEmail.attachment = [{
+        name: `INVOICE-${invoiceData.invoice_number}-PAID.pdf`,
+        content: pdfBuffer.toString('base64')
+      }];
     }
 
     await apiInstance.sendTransacEmail(sendSmtpEmail);
@@ -291,7 +299,6 @@ const sendSubscriptionActivationEmail = async (companyData, packageData, endDate
     throw new Error('Failed to send activation email with invoice');
   }
 };
-
 
 const sendAdminProvisioningEmail = async (adminEmail, adminName, otp, loginUrl) => {
   const content = `
@@ -348,7 +355,6 @@ const sendCompanyCreationEmail = async (adminEmail, adminName, companyName, plan
     throw new Error('Failed to send company creation email');
   }
 };
-
 
 module.exports = {
   sendSignupOTPEmail,

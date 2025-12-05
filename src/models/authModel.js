@@ -137,6 +137,38 @@ const getCompanyById = async (id) => {
   }
 };
 
+const getCompanyByApiKey = async (apiKey) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+          c.id, c.unique_company_id, c.company_name, c.admin_email, c.admin_name,
+          c.is_active, c.subscription_package_id, c.subscription_start_date, c.subscription_end_date,
+          c.subscription_status,
+          sp.name AS package_name, sp.max_staff_count, sp.max_leads_per_month, sp.features,
+          ls.id as source_id, ls.source_name
+       FROM lead_sources ls
+       JOIN companies c ON ls.company_id = c.id
+       LEFT JOIN subscription_packages sp ON c.subscription_package_id = sp.id
+       WHERE ls.api_key = $1 AND ls.is_active = TRUE AND c.is_active = TRUE`,
+      [apiKey]
+    );
+
+    const company = rows.length ? rows[0] : null;
+
+    if (company && company.features && typeof company.features === 'string') {
+        try {
+            company.features = JSON.parse(company.features);
+        } catch (e) {
+            company.features = [];
+        }
+    }
+
+    return company;
+  } catch (error) {
+    throw new Error("Database error while verifying API key");
+  }
+};
+
 const assignTrialSubscription = async (companyId, packageId, endDate) => {
   const query = `
     UPDATE companies
@@ -391,5 +423,6 @@ module.exports = {
   deleteTempSignup,
   createCompanySession,
   findCompanySession,
-  deleteCompanySession
+  deleteCompanySession,
+  getCompanyByApiKey
 };

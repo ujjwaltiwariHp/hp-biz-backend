@@ -58,12 +58,16 @@ const timezoneChain = [authenticateAny, attachTimezone];
 const subscriptionChain = [authenticateAny, attachTimezone, getCompanySubscriptionAndUsage, checkSubscriptionActive];
 const settingsPermission = [...subscriptionChain, requirePermission('lead_management', 'manage_settings')];
 
+const apiAccessPermission = [...settingsPermission, requireFeature('api_access')];
+
 router.get('/sources', ...subscriptionChain, getLeadSources);
 router.get('/sources/:id', ...subscriptionChain, getLeadSourceById);
-router.post('/sources/create', ...settingsPermission, logActivity, createLeadSource);
-router.put('/sources/update/:id', ...settingsPermission, logActivity, updateLeadSource);
-router.delete('/sources/delete/:id', ...settingsPermission, logActivity, deleteLeadSource);
-router.put('/sources/toggle/:id', ...settingsPermission, logActivity, toggleLeadSource);
+
+router.post('/sources/create', ...apiAccessPermission, logActivity, createLeadSource);
+router.put('/sources/update/:id', ...apiAccessPermission, logActivity, updateLeadSource);
+router.delete('/sources/delete/:id', ...apiAccessPermission, logActivity, deleteLeadSource);
+router.put('/sources/toggle/:id', ...apiAccessPermission, logActivity, toggleLeadSource);
+
 
 router.get('/statuses', ...subscriptionChain, getLeadStatuses);
 router.get('/statuses/:id', ...subscriptionChain, getLeadStatusById);
@@ -107,7 +111,13 @@ router.put('/update/status/:id', ...subscriptionChain, requirePermission('lead_m
 router.delete('/delete/:id', ...subscriptionChain, requirePermission('lead_management', 'delete'), logActivity, deleteLead);
 router.get('/:id/assignment-history', ...subscriptionChain, requirePermission('lead_management', 'view'), getLeadAssignmentHistory);
 
-router.post('/transfer', ...subscriptionChain, requirePermission('lead_management', 'transfer'),requireFeature('lead_transfer'), logActivity, transferLeadController);
+router.post('/transfer',
+    ...subscriptionChain,
+    requirePermission('lead_management', 'transfer'),
+    requireFeature('lead_transfer'),
+    logActivity,
+    transferLeadController
+);
 
 router.get('/tags', ...subscriptionChain, getLeadTags);
 router.get('/tags/:id', ...subscriptionChain, getLeadTagById);

@@ -12,6 +12,8 @@ const { requireSuperAdminPermission } = require('../../middleware/super-admin-mi
 
 router.use(authenticateSuperAdmin);
 
+router.get('/features', requireSuperAdminPermission('subscriptions', 'view'), subscriptionController.getFeatureList);
+
 router.get('/', requireSuperAdminPermission('subscriptions', 'view'), validatePackageQuery, subscriptionController.getPackages);
 router.get('/:id', requireSuperAdminPermission('subscriptions', 'view'), validatePackageId, subscriptionController.getPackage);
 
