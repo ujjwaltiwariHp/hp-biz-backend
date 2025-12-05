@@ -12,15 +12,27 @@ const {
 const { authenticateAny, adminOnly, requirePermission } = require("../middleware/auth");
 const { attachTimezone } = require('../middleware/timezoneMiddleware');
 
-const timezoneChain = [authenticateAny, attachTimezone];
+const {
+    getCompanySubscriptionAndUsage,
+    checkSubscriptionActive,
+    requireFeature
+} = require('../middleware/subscriptionMiddleware');
 
-router.get("/filters", ...timezoneChain, getFilterOptions);
+const loggingChain = [
+    authenticateAny,
+    attachTimezone,
+    getCompanySubscriptionAndUsage,
+    checkSubscriptionActive,
+    requireFeature('view_logs')
+];
 
-router.get("/activity", ...timezoneChain, getUserLogs);
+router.get("/filters", ...loggingChain, getFilterOptions);
+
+router.get("/activity", ...loggingChain, getUserLogs);
 
 router.get("/system", authenticateAny, adminOnly, attachTimezone, getSystemEventLogs);
 
-router.get("/dashboard", ...timezoneChain, getActivityDashboard);
+router.get("/dashboard", ...loggingChain, getActivityDashboard);
 
 router.get("/staff/activity/:staff_id", authenticateAny, attachTimezone, requirePermission('staff_view'), getStaffActivitySummary);
 
