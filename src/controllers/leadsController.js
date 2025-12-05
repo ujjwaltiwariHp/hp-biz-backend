@@ -1298,52 +1298,62 @@ const transferLeadController = async (req, res) => {
 
     const companyId = req.company.id;
     const transferredByStaffId = req.staff.id;
+    const { new_staff_id, lead_id, lead_ids } = req.body;
 
-    const { lead_id, new_staff_id } = req.body;
+    let targetLeadIds = [];
+    if (lead_ids && Array.isArray(lead_ids) && lead_ids.length > 0) {
+        targetLeadIds = lead_ids.map(id => parseInt(id));
+    } else if (lead_id) {
+        targetLeadIds = [parseInt(lead_id)];
+    }
 
-    if (!lead_id || !new_staff_id) {
-      return errorResponse(res, 400, "Lead ID and new Staff ID are required for transfer.");
+    if (targetLeadIds.length === 0 || !new_staff_id) {
+      return errorResponse(res, 400, "Valid Lead ID(s) and new Staff ID are required.");
     }
 
     if (parseInt(transferredByStaffId) === parseInt(new_staff_id)) {
-        return errorResponse(res, 400, "Cannot transfer a lead to yourself. Please choose another staff member.");
+        return errorResponse(res, 400, "Cannot transfer leads to yourself.");
     }
-    const transferResult = await Lead.transferLead(
-      parseInt(lead_id),
+
+    const transferResult = await Lead.bulkTransferLeads(
+      targetLeadIds,
       parseInt(new_staff_id),
       transferredByStaffId,
       companyId
     );
 
-    await NotificationService.createLeadAssignmentNotification(
-        transferResult.id,
-        parseInt(new_staff_id),
-        transferredByStaffId,
-        companyId
-    );
+    if (transferResult.transferred_count > 0) {
+        await NotificationService.createBulkTransferNotification(
+            transferResult.transferred_count,
+            transferResult.first_lead_id,
+            parseInt(new_staff_id),
+            transferredByStaffId,
+            companyId
+        );
 
-    sseService.publish(`c_${companyId}`, 'leads_list_refresh', {
-        action: 'transferred',
-        leadId: transferResult.id,
-        newStaffId: parseInt(new_staff_id)
-    });
+        sseService.publish(`c_${companyId}`, 'leads_list_refresh', {
+            action: 'bulk_transferred',
+            count: transferResult.transferred_count,
+            newStaffId: parseInt(new_staff_id)
+        });
+    }
 
     return successResponse(
       res,
-      `Lead ${lead_id} successfully transferred to staff member ${new_staff_id}.`,
+      `Successfully transferred ${transferResult.transferred_count} lead(s).`,
       {
-          lead_id: transferResult.id,
-          new_assigned_to: transferResult.assigned_to
+          count: transferResult.transferred_count,
+          new_assigned_to: parseInt(new_staff_id)
       },
       200,
       req
     );
 
   } catch (err) {
-    if (err.message.includes("not found or unauthorized") || err.message.includes("not found")) {
+    if (err.message.includes("not found") || err.message.includes("unauthorized")) {
         return errorResponse(res, 404, err.message);
     }
-    return errorResponse(res, 500, "Failed to transfer lead. " + err.message);
+    return errorResponse(res, 500, "Failed to transfer leads. " + err.message);
   }
 };
 
