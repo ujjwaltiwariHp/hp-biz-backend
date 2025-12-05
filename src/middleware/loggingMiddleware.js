@@ -50,7 +50,6 @@ const logActivity = (req, res, next) => {
         let company_id = null;
         let super_admin_id = null;
 
-        // 1. Identify User Context
         if (req.userType === 'staff' && req.staff) {
           staff_id = req.staff.id;
           company_id = req.staff.company_id;
@@ -63,7 +62,7 @@ const logActivity = (req, res, next) => {
             company_id = parseInt(req.params.companyId);
           } else if (req.baseUrl && req.baseUrl.includes('/companies') && req.params && req.params.id) {
             company_id = parseInt(req.params.id);
-          } else if (req.body && req.body.company_id) { // FIXED: Added req.body check
+          } else if (req.body && req.body.company_id) {
             company_id = parseInt(req.body.company_id);
           }
         }
@@ -78,7 +77,11 @@ const logActivity = (req, res, next) => {
         const rawIP = getClientIP(req);
         const ip_address = normalizeIP(rawIP);
 
-        const actionDetails = `${req.method} ${req.originalUrl}`;
+        let actionDetails = `${req.method} ${req.originalUrl}`;
+
+        if (req.body && req.body.lead_ids && Array.isArray(req.body.lead_ids)) {
+            actionDetails += ` (Bulk Action: ${req.body.lead_ids.length} items)`;
+        }
 
         const activityData = {
           staff_id,
@@ -99,7 +102,6 @@ const logActivity = (req, res, next) => {
     });
   };
 
-  // Wrap response methods
   res.send = function(data) {
     logAfterResponse();
     return originalSend.call(this, data);
@@ -184,7 +186,6 @@ const getResourceInfo = (url, body = {}, params = {}) => {
   else if (lowerUrl.includes('/profile')) resource_type = 'profile';
   else if (lowerUrl.includes('/auth')) resource_type = 'auth';
 
-  // Super Admin Specific Resources
   else if (lowerUrl.includes('/super-admin/')) {
     if (lowerUrl.includes('/subscriptions')) resource_type = 'subscription';
     if (lowerUrl.includes('/payments')) resource_type = 'payment';
@@ -193,11 +194,19 @@ const getResourceInfo = (url, body = {}, params = {}) => {
     if (lowerUrl.includes('/companies')) resource_type = 'company';
   }
 
-  // Attempt to find ID from params or body
-  if (params && params.id) resource_id = parseInt(params.id);
-  else if (params && params.companyId) resource_id = parseInt(params.companyId);
-  else if (params && params.staffId) resource_id = parseInt(params.staffId);
-  else if (body && body.id) resource_id = parseInt(body.id);
+  if (params && params.id) {
+    resource_id = parseInt(params.id);
+  } else if (params && params.companyId) {
+    resource_id = parseInt(params.companyId);
+  } else if (params && params.staffId) {
+    resource_id = parseInt(params.staffId);
+  } else if (body) {
+    if (body.id) {
+      resource_id = parseInt(body.id);
+    } else if (body.lead_ids && Array.isArray(body.lead_ids) && body.lead_ids.length > 0) {
+      resource_id = parseInt(body.lead_ids[0]);
+    }
+  }
 
   if (isNaN(resource_id)) resource_id = null;
 
@@ -213,12 +222,11 @@ const shouldLogActivity = (action_type, url) => {
   if (!action_type) return false;
   if (skipPatterns.some(pattern => url.includes(pattern))) return false;
 
-  // Don't log generic view actions unless they are significant
   if (action_type === 'VIEW' &&
       !url.includes('/profile') &&
       !url.includes('/dashboard') &&
       !url.includes('/reports') &&
-      !url.match(/\/\d+$/) // View Details with ID
+      !url.match(/\/\d+$/)
     ) {
     return false;
   }

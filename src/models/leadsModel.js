@@ -1538,83 +1538,90 @@ const createDefaultLeadStatuses = async (companyId) => {
   }
 };
 
-const transferLead = async (leadId, newStaffId, transferredBy, companyId) => {
+const bulkTransferLeads = async (leadIds, newStaffId, transferredBy, companyId) => {
   const client = await pool.connect();
 
   try {
     await client.query('BEGIN');
 
-    const currentLeadResult = await client.query(
-      `SELECT assigned_to FROM leads WHERE id = $1 AND company_id = $2 FOR UPDATE`,
-      [leadId, companyId]
+    const staffCheck = await client.query(
+      `SELECT id, first_name, last_name FROM staff WHERE id = $1 AND company_id = $2 AND status = 'active'`,
+      [newStaffId, companyId]
     );
 
-    if (currentLeadResult.rows.length === 0) {
-      throw new Error("Lead not found or unauthorized for this company.");
+    if (staffCheck.rows.length === 0) {
+      throw new Error("Target staff member not found or inactive.");
     }
 
-    const oldStaffId = currentLeadResult.rows[0].assigned_to;
-    const oldStaffIdValue = oldStaffId !== null ? oldStaffId.toString() : 'None';
+    const newStaffName = `${staffCheck.rows[0].first_name} ${staffCheck.rows[0].last_name}`;
 
-    const staffIdsToFetch = [oldStaffId, newStaffId].filter(id => id !== null && id !== undefined);
-
-    const staffNamesResult = await client.query(
-      `SELECT id, first_name, last_name FROM staff WHERE id = ANY($1)`,
-      [staffIdsToFetch]
+    const senderCheck = await client.query(
+      `SELECT first_name, last_name FROM staff WHERE id = $1`,
+      [transferredBy]
     );
+    const oldStaffName = senderCheck.rows[0]
+      ? `${senderCheck.rows[0].first_name} ${senderCheck.rows[0].last_name}`
+      : 'Unknown';
 
-    let oldStaffName = 'Unassigned';
-    if (oldStaffId !== null) {
-      const oldStaff = staffNamesResult.rows.find(s => s.id === oldStaffId);
-      oldStaffName = oldStaff ? `${oldStaff.first_name} ${oldStaff.last_name}` : `ID: ${oldStaffIdValue}`;
-    }
-
-    const newStaff = staffNamesResult.rows.find(s => s.id === newStaffId);
-    if (!newStaff) {
-      throw new Error("New staff member not found or inactive.");
-    }
-    const newStaffName = `${newStaff.first_name} ${newStaff.last_name}`;
-
-    const updateLeadQuery = `
+    const updateQuery = `
       UPDATE leads
-      SET assigned_to = $1, assigned_by = $2, assigned_by_type = 'staff',
-          assigned_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $3 AND company_id = $4
-      RETURNING id, assigned_to, assigned_at
+      SET assigned_to = $1,
+          assigned_by = $2,
+          assigned_by_type = 'staff',
+          assigned_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ANY($3)
+        AND company_id = $4
+        AND assigned_to = $2
+      RETURNING id
     `;
 
-    const updateLeadResult = await client.query(updateLeadQuery, [
+    const result = await client.query(updateQuery, [
       newStaffId,
       transferredBy,
-      leadId,
+      leadIds,
       companyId
     ]);
 
-    const logActivityQuery = `
-      INSERT INTO lead_activities (lead_id, staff_id, activity_type, old_value, new_value, description)
-      VALUES ($1, $2, 'lead_transfer', $3, $4, $5)
-      RETURNING id
+    const transferredIds = result.rows.map(r => r.id);
+    const count = transferredIds.length;
+
+    if (count === 0) {
+      await client.query('ROLLBACK');
+      return { transferred_count: 0 };
+    }
+
+    const logValues = [];
+    const logParams = [];
+    let paramIndex = 1;
+
+    transferredIds.forEach(leadId => {
+      logValues.push(`($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4}, $${paramIndex + 5})`);
+      logParams.push(
+        leadId,
+        transferredBy,
+        'lead_transfer',
+        oldStaffName,
+        newStaffName,
+        `Bulk transfer: Lead moved from ${oldStaffName} to ${newStaffName}`
+      );
+      paramIndex += 6;
+    });
+
+    const logQuery = `
+      INSERT INTO lead_activities
+      (lead_id, staff_id, activity_type, old_value, new_value, description)
+      VALUES ${logValues.join(', ')}
     `;
-    await client.query(logActivityQuery, [
-      leadId,
-      transferredBy,
-      oldStaffName,
-      newStaffName,
-      `Lead transferred from ${oldStaffName} to ${newStaffName}`
-    ]);
+
+    await client.query(logQuery, logParams);
 
     await client.query('COMMIT');
 
-    NotificationService.createLeadAssignmentNotification(
-        leadId,
-        newStaffId,
-        transferredBy,
-        companyId
-    ).catch(err => {
-        console.error("Non-critical: Failed to send transfer notification:", err);
-    });
-
-    return updateLeadResult.rows[0];
+    return {
+      transferred_count: count,
+      first_lead_id: transferredIds[0]
+    };
 
   } catch (error) {
     await client.query('ROLLBACK');
@@ -1682,6 +1689,6 @@ module.exports = {
   getCustomFieldsForLead,
   createDefaultLeadSources,
   createDefaultLeadStatuses,
-  transferLead
+  bulkTransferLeads
 
 };
