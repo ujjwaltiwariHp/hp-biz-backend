@@ -107,7 +107,7 @@ router.put('/update/status/:id', ...subscriptionChain, requirePermission('lead_m
 router.delete('/delete/:id', ...subscriptionChain, requirePermission('lead_management', 'delete'), logActivity, deleteLead);
 router.get('/:id/assignment-history', ...subscriptionChain, requirePermission('lead_management', 'view'), getLeadAssignmentHistory);
 
-router.post('/transfer', ...subscriptionChain, requirePermission('lead_management', 'transfer'), logActivity, transferLeadController);
+router.post('/transfer', ...subscriptionChain, requirePermission('lead_management', 'transfer'),requireFeature('lead_transfer'), logActivity, transferLeadController);
 
 router.get('/tags', ...subscriptionChain, getLeadTags);
 router.get('/tags/:id', ...subscriptionChain, getLeadTagById);

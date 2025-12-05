@@ -1538,7 +1538,7 @@ const createDefaultLeadStatuses = async (companyId) => {
   }
 };
 
-const bulkTransferLeads = async (leadIds, newStaffId, transferredBy, companyId) => {
+const bulkTransferLeads = async (leadIds, newStaffId, transferredBy, transferredByType, companyId) => {
   const client = await pool.connect();
 
   try {
@@ -1555,24 +1555,33 @@ const bulkTransferLeads = async (leadIds, newStaffId, transferredBy, companyId) 
 
     const newStaffName = `${staffCheck.rows[0].first_name} ${staffCheck.rows[0].last_name}`;
 
-    const senderCheck = await client.query(
-      `SELECT first_name, last_name FROM staff WHERE id = $1`,
-      [transferredBy]
-    );
-    const oldStaffName = senderCheck.rows[0]
-      ? `${senderCheck.rows[0].first_name} ${senderCheck.rows[0].last_name}`
-      : 'Unknown';
+    let oldStaffName = 'Unknown';
+    if (transferredByType === 'staff') {
+        const senderCheck = await client.query(
+          `SELECT first_name, last_name FROM staff WHERE id = $1`,
+          [transferredBy]
+        );
+        oldStaffName = senderCheck.rows[0]
+          ? `${senderCheck.rows[0].first_name} ${senderCheck.rows[0].last_name}`
+          : 'Unknown';
+    } else {
+        oldStaffName = 'Company Admin';
+    }
+    let ownershipClause = '';
+    if (transferredByType === 'staff') {
+        ownershipClause = `AND assigned_to = $2`;
+    }
 
     const updateQuery = `
       UPDATE leads
       SET assigned_to = $1,
           assigned_by = $2,
-          assigned_by_type = 'staff',
+          assigned_by_type = '${transferredByType}',
           assigned_at = CURRENT_TIMESTAMP,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ANY($3)
         AND company_id = $4
-        AND assigned_to = $2
+        ${ownershipClause}
       RETURNING id
     `;
 
@@ -1597,9 +1606,12 @@ const bulkTransferLeads = async (leadIds, newStaffId, transferredBy, companyId) 
 
     transferredIds.forEach(leadId => {
       logValues.push(`($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4}, $${paramIndex + 5})`);
+
+      const activityStaffId = transferredByType === 'staff' ? transferredBy : null;
+
       logParams.push(
         leadId,
-        transferredBy,
+        activityStaffId,
         'lead_transfer',
         oldStaffName,
         newStaffName,

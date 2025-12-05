@@ -1292,58 +1292,62 @@ const downloadSampleCsv = async (req, res) => {
 
 const transferLeadController = async (req, res) => {
   try {
-    if (req.userType !== 'staff' || !req.staff || !req.company) {
-        return errorResponse(res, 403, "Staff authentication is required for lead transfer.");
+    if (!['staff', 'admin'].includes(req.userType)) {
+      return errorResponse(res, 403, "Authentication required for lead transfer.");
     }
 
     const companyId = req.company.id;
-    const transferredByStaffId = req.staff.id;
+    const transferredById = req.userType === 'staff' ? req.staff.id : req.company.id;
+    const transferredByType = req.userType === 'staff' ? 'staff' : 'company';
+
     const { new_staff_id, lead_id, lead_ids } = req.body;
 
     let targetLeadIds = [];
     if (lead_ids && Array.isArray(lead_ids) && lead_ids.length > 0) {
-        targetLeadIds = lead_ids.map(id => parseInt(id));
+      targetLeadIds = lead_ids.map(id => parseInt(id));
     } else if (lead_id) {
-        targetLeadIds = [parseInt(lead_id)];
+      targetLeadIds = [parseInt(lead_id)];
     }
 
     if (targetLeadIds.length === 0 || !new_staff_id) {
       return errorResponse(res, 400, "Valid Lead ID(s) and new Staff ID are required.");
     }
 
-    if (parseInt(transferredByStaffId) === parseInt(new_staff_id)) {
-        return errorResponse(res, 400, "Cannot transfer leads to yourself.");
+    if (req.userType === 'staff' && parseInt(transferredById) === parseInt(new_staff_id)) {
+      return errorResponse(res, 400, "Cannot transfer leads to yourself.");
     }
 
     const transferResult = await Lead.bulkTransferLeads(
       targetLeadIds,
       parseInt(new_staff_id),
-      transferredByStaffId,
+      transferredById,
+      transferredByType,
       companyId
     );
 
     if (transferResult.transferred_count > 0) {
-        await NotificationService.createBulkTransferNotification(
-            transferResult.transferred_count,
-            transferResult.first_lead_id,
-            parseInt(new_staff_id),
-            transferredByStaffId,
-            companyId
-        );
+      await NotificationService.createBulkTransferNotification(
+        transferResult.transferred_count,
+        transferResult.first_lead_id,
+        parseInt(new_staff_id),
+        transferredById,
+        companyId,
+        transferredByType
+      );
 
-        sseService.publish(`c_${companyId}`, 'leads_list_refresh', {
-            action: 'bulk_transferred',
-            count: transferResult.transferred_count,
-            newStaffId: parseInt(new_staff_id)
-        });
+      sseService.publish(`c_${companyId}`, 'leads_list_refresh', {
+        action: 'bulk_transferred',
+        count: transferResult.transferred_count,
+        newStaffId: parseInt(new_staff_id)
+      });
     }
 
     return successResponse(
       res,
       `Successfully transferred ${transferResult.transferred_count} lead(s).`,
       {
-          count: transferResult.transferred_count,
-          new_assigned_to: parseInt(new_staff_id)
+        count: transferResult.transferred_count,
+        new_assigned_to: parseInt(new_staff_id)
       },
       200,
       req
@@ -1351,7 +1355,7 @@ const transferLeadController = async (req, res) => {
 
   } catch (err) {
     if (err.message.includes("not found") || err.message.includes("unauthorized")) {
-        return errorResponse(res, 404, err.message);
+      return errorResponse(res, 404, err.message);
     }
     return errorResponse(res, 500, "Failed to transfer leads. " + err.message);
   }
