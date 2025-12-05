@@ -11,6 +11,13 @@ const {
 } = require('../../models/super-admin-models/subscriptionModel');
 const { successResponse } = require('../../utils/successResponse');
 const { errorResponse } = require('../../utils/errorResponse');
+const { SUBSCRIPTION_FEATURES } = require('../../config/subscriptionFeatures');
+
+const getFeatureList = async (req, res) => {
+    return successResponse(res, "Available subscription features retrieved", {
+        features: SUBSCRIPTION_FEATURES
+    });
+};
 
 const getPackages = async (req, res) => {
   try {
@@ -261,5 +268,6 @@ module.exports = {
   createSubscriptionPackage,
   updateSubscriptionPackage,
   removePackage,
-  toggleStatus
+  toggleStatus,
+  getFeatureList
 };

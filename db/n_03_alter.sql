@@ -1,0 +1,2 @@
+ALTER TABLE subscription_packages
+ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;

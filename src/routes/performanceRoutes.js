@@ -13,25 +13,34 @@ const {
 } = require('../controllers/performanceController');
 
 const { authenticateAny, requirePermission } = require('../middleware/auth');
+const { requireFeature, getCompanySubscriptionAndUsage } = require('../middleware/subscriptionMiddleware');
 
 const router = express.Router();
 
 router.use(globalLogActivity);
 
-router.get('/dashboard', authenticateAny, attachTimezone, requirePermission('reports', 'view'), getPerformanceDashboard);
+const reportsChain = [
+  authenticateAny,
+  attachTimezone,
+  getCompanySubscriptionAndUsage,
+  requireFeature('view_reports'),
+  requirePermission('reports', 'view')
+];
 
-router.get('/staff', authenticateAny, attachTimezone, requirePermission('reports', 'view'), getAllStaffPerformance);
+router.get('/dashboard', ...reportsChain, getPerformanceDashboard);
 
-router.get('/staff/:staffId', authenticateAny, attachTimezone, requirePermission('reports', 'view'), getStaffPerformance);
+router.get('/staff', ...reportsChain, getAllStaffPerformance);
 
-router.get('/staff/:staffId/timeline', authenticateAny, attachTimezone, requirePermission('reports', 'view'), getStaffTimeline);
+router.get('/staff/:staffId', ...reportsChain, getStaffPerformance);
 
-router.get('/company', authenticateAny, attachTimezone, requirePermission('reports', 'view'), getCompanyPerformance);
+router.get('/staff/:staffId/timeline', ...reportsChain, getStaffTimeline);
 
-router.get('/reports/lead-conversion', authenticateAny, attachTimezone, requirePermission('reports', 'view'), getLeadConversionReport);
+router.get('/company', ...reportsChain, getCompanyPerformance);
 
-router.get('/reports/source-performance', authenticateAny, attachTimezone, requirePermission('reports', 'view'), getSourcePerformanceReport);
+router.get('/reports/lead-conversion', ...reportsChain, getLeadConversionReport);
 
-router.post('/reports/custom', authenticateAny, attachTimezone, requirePermission('reports', 'view'), generateCustomReport);
+router.get('/reports/source-performance', ...reportsChain, getSourcePerformanceReport);
+
+router.post('/reports/custom', ...reportsChain, generateCustomReport);
 
 module.exports = router;

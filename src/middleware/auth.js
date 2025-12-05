@@ -1,6 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { getCompanyById } = require('../models/authModel');
-const { getStaffById } = require('../models/staffModel');
+const { getCompanyById, getCompanyByApiKey } = require('../models/authModel');
 const { errorResponse } = require('../utils/errorResponse');
 const { getSuperAdminById } = require('../models/super-admin-models/authModel');
 const moment = require('moment');
@@ -117,6 +116,25 @@ const authenticateStaff = async (req, res, next) => {
 
 const authenticateAny = async (req, res, next) => {
   try {
+    const apiKey = req.header('x-api-key');
+    if (apiKey) {
+      const company = await getCompanyByApiKey(apiKey);
+
+      if (!company) {
+        return errorResponse(res, 401, "Invalid API Key");
+      }
+      const features = company.features || [];
+      if (!features.includes('api_access')) {
+        return errorResponse(res, 403, "API Access is not enabled for your subscription plan. Please upgrade.");
+      }
+
+      req.company = company;
+      req.userType = 'admin';
+      req.isExternalApi = true;
+      req.leadSourceId = company.source_id;
+
+      return next();
+    }
     let token = req.header('Authorization')?.replace('Bearer ', '');
 
     if (!token && req.query.token) {
