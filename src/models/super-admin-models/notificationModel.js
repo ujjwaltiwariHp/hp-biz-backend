@@ -153,6 +153,22 @@ const markNotificationAsRead = async (id) => {
   }
 };
 
+const markAllRead = async () => {
+  try {
+    const query = `
+      UPDATE super_admin_notifications
+      SET is_read = true, read_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+      WHERE is_read = false
+      RETURNING id
+    `;
+
+    const result = await pool.query(query);
+    return result.rows;
+  } catch (error) {
+    throw error;
+  }
+};
+
 const getNotificationById = async (id) => {
   try {
     const query = `
@@ -326,6 +342,7 @@ module.exports = {
   getExpiringSubscriptions,
   createNotification,
   markNotificationAsRead,
+  markAllRead,
   getNotificationById,
   getNotificationStats,
   generateExpiringNotifications,

@@ -6,6 +6,7 @@ const {
   getExpiringSubscriptionsController,
   sendRenewalReminder,
   markAsRead,
+  markAllAsRead, // <--- Imported new controller
   generateNotifications,
   getNotificationStatsController
 } = require('../../controllers/super-admin-controllers/notificationController');
@@ -28,6 +29,8 @@ router.get('/expiring-subscriptions', requireSuperAdminPermission('notifications
 
 router.post('/send-renewal-reminder', requireSuperAdminPermission('notifications', 'create'), validateRenewalReminder, sendRenewalReminder);
 router.post('/generate', requireSuperAdminPermission('notifications', 'create'), generateNotifications);
+
+router.put('/mark-all-read', requireSuperAdminPermission('notifications', 'update'), markAllAsRead);
 
 router.put('/:id/mark-read', requireSuperAdminPermission('notifications', 'update'), validateNotificationId, markAsRead);
 
