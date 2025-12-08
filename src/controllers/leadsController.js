@@ -1300,35 +1300,66 @@ const transferLeadController = async (req, res) => {
     const transferredById = req.userType === 'staff' ? req.staff.id : req.company.id;
     const transferredByType = req.userType === 'staff' ? 'staff' : 'company';
 
-    const { new_staff_id, lead_id, lead_ids } = req.body;
+    const { new_staff_id, lead_id, lead_ids, transfer_mode, filters, excluded_ids } = req.body;
 
-    let targetLeadIds = [];
-    if (lead_ids && Array.isArray(lead_ids) && lead_ids.length > 0) {
-      targetLeadIds = lead_ids.map(id => parseInt(id));
-    } else if (lead_id) {
-      targetLeadIds = [parseInt(lead_id)];
-    }
-
-    if (targetLeadIds.length === 0 || !new_staff_id) {
-      return errorResponse(res, 400, "Valid Lead ID(s) and new Staff ID are required.");
+    if (!new_staff_id) {
+      return errorResponse(res, 400, "Target Staff ID is required.");
     }
 
     if (req.userType === 'staff' && parseInt(transferredById) === parseInt(new_staff_id)) {
       return errorResponse(res, 400, "Cannot transfer leads to yourself.");
     }
 
-    const transferResult = await Lead.bulkTransferLeads(
-      targetLeadIds,
-      parseInt(new_staff_id),
-      transferredById,
-      transferredByType,
-      companyId
-    );
+    let transferResult;
+
+    if (transfer_mode === 'all_filtered') {
+      const processedFilters = { ...filters };
+
+      if (processedFilters.date_from) {
+        processedFilters.date_from = parseAndConvertToUTC(processedFilters.date_from, req.timezone);
+      }
+      if (processedFilters.date_to) {
+        const dateToInclusive = new Date(new Date(processedFilters.date_to).getTime() + (24 * 60 * 60 * 1000));
+        processedFilters.date_to = parseAndConvertToUTC(dateToInclusive.toISOString(), req.timezone);
+      }
+
+      transferResult = await Lead.transferLeadsByFilter(
+        processedFilters,
+        excluded_ids || [],
+        parseInt(new_staff_id),
+        transferredById,
+        transferredByType,
+        companyId
+      );
+
+    } else {
+      let targetLeadIds = [];
+      if (lead_ids && Array.isArray(lead_ids) && lead_ids.length > 0) {
+        targetLeadIds = lead_ids.map(id => parseInt(id));
+      } else if (lead_id) {
+        targetLeadIds = [parseInt(lead_id)];
+      }
+
+      if (targetLeadIds.length === 0) {
+        return errorResponse(res, 400, "No leads selected for transfer.");
+      }
+
+      transferResult = await Lead.bulkTransferLeads(
+        targetLeadIds,
+        parseInt(new_staff_id),
+        transferredById,
+        transferredByType,
+        companyId
+      );
+    }
 
     if (transferResult.transferred_count > 0) {
+      const idsForNotification = transferResult.transferred_ids || (lead_ids ? lead_ids : [lead_id]);
+
+      const notificationPayload = idsForNotification.length > 0 ? idsForNotification : transferResult.transferred_count;
+
       await NotificationService.createBulkTransferNotification(
-        transferResult.transferred_count,
-        transferResult.first_lead_id,
+        notificationPayload,
         parseInt(new_staff_id),
         transferredById,
         companyId,

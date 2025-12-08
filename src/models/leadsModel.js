@@ -45,6 +45,75 @@ const getFieldDefinitions = async (companyId) => {
   return result.rows;
 };
 
+const buildFilterConditions = (filters, params, paramStartIndex) => {
+  let conditions = [];
+  let paramCount = paramStartIndex;
+
+  if (filters.status_ids && filters.status_ids.length > 0) {
+    paramCount++;
+    conditions.push(`l.status_id = ANY($${paramCount})`);
+    params.push(filters.status_ids);
+  }
+
+  if (filters.tag_names && filters.tag_names.length > 0) {
+    paramCount++;
+    conditions.push(`l.id IN (
+      SELECT DISTINCT ltm2.lead_id
+      FROM lead_tag_mappings ltm2
+      JOIN lead_tags lt2 ON ltm2.tag_id = lt2.id
+      WHERE LOWER(lt2.tag_name) = ANY($${paramCount})
+    )`);
+    params.push(filters.tag_names.map(name => name.toLowerCase()));
+  }
+
+  if (filters.tag_ids && filters.tag_ids.length > 0) {
+    paramCount++;
+    conditions.push(`l.id IN (
+      SELECT DISTINCT ltm2.lead_id
+      FROM lead_tag_mappings ltm2
+      WHERE ltm2.tag_id = ANY($${paramCount})
+    )`);
+    params.push(filters.tag_ids);
+  }
+
+  if (filters.source_ids && filters.source_ids.length > 0) {
+    paramCount++;
+    conditions.push(`l.lead_source_id = ANY($${paramCount})`);
+    params.push(filters.source_ids);
+  }
+
+  if (filters.assigned_to && filters.assigned_to.length > 0) {
+    paramCount++;
+    conditions.push(`l.assigned_to = ANY($${paramCount})`);
+    params.push(filters.assigned_to);
+  }
+
+  if (filters.search) {
+    paramCount++;
+    conditions.push(`(
+      LOWER(l.first_name) LIKE LOWER($${paramCount}) OR
+      LOWER(l.last_name) LIKE LOWER($${paramCount}) OR
+      LOWER(l.email) LIKE LOWER($${paramCount}) OR
+      l.phone LIKE $${paramCount}
+    )`);
+    params.push(`%${filters.search}%`);
+  }
+
+  if (filters.date_from) {
+    paramCount++;
+    conditions.push(`l.created_at >= $${paramCount}`);
+    params.push(filters.date_from);
+  }
+
+  if (filters.date_to) {
+    paramCount++;
+    conditions.push(`l.created_at <= $${paramCount}`);
+    params.push(filters.date_to);
+  }
+
+  return { conditions, nextParamIndex: paramCount };
+};
+
 const createLead = async (data) => {
   const {
     company_id,
@@ -490,71 +559,15 @@ const searchLeads = async (companyId, filters) => {
   `;
 
   const params = [companyId];
-  let paramCount = 1;
 
-  if (filters.status_ids && filters.status_ids.length > 0) {
-    paramCount++;
-    query += ` AND l.status_id = ANY($${paramCount})`;
-    params.push(filters.status_ids);
-  }
-
-  if (filters.tag_names && filters.tag_names.length > 0) {
-    paramCount++;
-    query += ` AND l.id IN (
-      SELECT DISTINCT ltm2.lead_id
-      FROM lead_tag_mappings ltm2
-      JOIN lead_tags lt2 ON ltm2.tag_id = lt2.id
-      WHERE LOWER(lt2.tag_name) = ANY($${paramCount})
-    )`;
-    params.push(filters.tag_names.map(name => name.toLowerCase()));
-  }
-
-  if (filters.tag_ids && filters.tag_ids.length > 0) {
-    paramCount++;
-    query += ` AND l.id IN (
-      SELECT DISTINCT ltm2.lead_id
-      FROM lead_tag_mappings ltm2
-      WHERE ltm2.tag_id = ANY($${paramCount})
-    )`;
-    params.push(filters.tag_ids);
-  }
-
-  if (filters.source_ids && filters.source_ids.length > 0) {
-    paramCount++;
-    query += ` AND l.lead_source_id = ANY($${paramCount})`;
-    params.push(filters.source_ids);
-  }
-
-  if (filters.assigned_to && filters.assigned_to.length > 0) {
-    paramCount++;
-    query += ` AND l.assigned_to = ANY($${paramCount})`;
-    params.push(filters.assigned_to);
-  }
-
-  if (filters.search) {
-    paramCount++;
-    query += ` AND (
-      LOWER(l.first_name) LIKE LOWER($${paramCount}) OR
-      LOWER(l.last_name) LIKE LOWER($${paramCount}) OR
-      LOWER(l.email) LIKE LOWER($${paramCount}) OR
-      l.phone LIKE $${paramCount}
-    )`;
-    params.push(`%${filters.search}%`);
-  }
-
-  if (filters.date_from) {
-    paramCount++;
-    query += ` AND l.created_at >= $${paramCount}`;
-    params.push(filters.date_from);
-  }
-
-  if (filters.date_to) {
-    paramCount++;
-    query += ` AND l.created_at <= $${paramCount}`;
-    params.push(filters.date_to);
+  const { conditions, nextParamIndex } = buildFilterConditions(filters, params, 1);
+  if (conditions.length > 0) {
+    query += ` AND ${conditions.join(' AND ')}`;
   }
 
   query += ` ORDER BY l.created_at DESC`;
+
+  let paramCount = nextParamIndex;
 
   if (filters.limit) {
     paramCount++;
@@ -1643,6 +1656,133 @@ const bulkTransferLeads = async (leadIds, newStaffId, transferredBy, transferred
   }
 };
 
+const transferLeadsByFilter = async (filters, excludedIds, newStaffId, transferredBy, transferredByType, companyId) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const staffCheck = await client.query(
+      `SELECT id, first_name, last_name FROM staff WHERE id = $1 AND company_id = $2 AND status = 'active'`,
+      [newStaffId, companyId]
+    );
+
+    if (staffCheck.rows.length === 0) {
+      throw new Error("Target staff member not found or inactive.");
+    }
+    const newStaffName = `${staffCheck.rows[0].first_name} ${staffCheck.rows[0].last_name}`;
+
+    let oldStaffName = 'Unknown';
+    if (transferredByType === 'staff') {
+      const senderCheck = await client.query(
+        `SELECT first_name, last_name FROM staff WHERE id = $1`,
+        [transferredBy]
+      );
+      oldStaffName = senderCheck.rows[0]
+        ? `${senderCheck.rows[0].first_name} ${senderCheck.rows[0].last_name}`
+        : 'Unknown';
+    } else {
+      oldStaffName = 'Company Admin';
+    }
+
+    let whereConditions = [`l.company_id = $1`];
+    let params = [companyId];
+    let paramCount = 1;
+
+    if (transferredByType === 'staff') {
+        paramCount++;
+        whereConditions.push(`l.assigned_to = $${paramCount}`);
+        params.push(transferredBy);
+    }
+
+    const filterResult = buildFilterConditions(filters, params, paramCount);
+    if (filterResult.conditions.length > 0) {
+        whereConditions.push(...filterResult.conditions);
+    }
+    paramCount = filterResult.nextParamIndex;
+
+    if (excludedIds && excludedIds.length > 0) {
+      paramCount++;
+      whereConditions.push(`l.id NOT IN (SELECT unnest($${paramCount}::int[]))`);
+      params.push(excludedIds);
+    }
+
+    paramCount++;
+    const newStaffParamIndex = paramCount;
+    params.push(newStaffId);
+
+    paramCount++;
+    const assignedByParamIndex = paramCount;
+    params.push(transferredBy);
+
+    const updateQuery = `
+      UPDATE leads l
+      SET assigned_to = $${newStaffParamIndex},
+          assigned_by = $${assignedByParamIndex},
+          assigned_by_type = '${transferredByType}',
+          assigned_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE ${whereConditions.join(' AND ')}
+      RETURNING l.id
+    `;
+
+    const result = await client.query(updateQuery, params);
+    const transferredIds = result.rows.map(r => r.id);
+    const count = transferredIds.length;
+
+    if (count === 0) {
+      await client.query('ROLLBACK');
+      return { transferred_count: 0, transferred_ids: [] };
+    }
+
+    // Batch Insert Activity Logs
+    const BATCH_SIZE = 500;
+    const activityStaffId = transferredByType === 'staff' ? transferredBy : null;
+
+    for (let i = 0; i < count; i += BATCH_SIZE) {
+        const batchIds = transferredIds.slice(i, i + BATCH_SIZE);
+        const logValues = [];
+        const logParams = [];
+        let logParamIndex = 1;
+
+        batchIds.forEach(leadId => {
+            logValues.push(`($${logParamIndex}, $${logParamIndex + 1}, $${logParamIndex + 2}, $${logParamIndex + 3}, $${logParamIndex + 4}, $${logParamIndex + 5})`);
+            logParams.push(
+                leadId,
+                activityStaffId,
+                'lead_transfer',
+                oldStaffName,
+                newStaffName,
+                `Bulk transfer (Filtered): Lead moved from ${oldStaffName} to ${newStaffName}`
+            );
+            logParamIndex += 6;
+        });
+
+        const logQuery = `
+            INSERT INTO lead_activities
+            (lead_id, staff_id, activity_type, old_value, new_value, description)
+            VALUES ${logValues.join(', ')}
+        `;
+
+        await client.query(logQuery, logParams);
+    }
+
+    await client.query('COMMIT');
+
+    return {
+      transferred_count: count,
+      first_lead_id: transferredIds[0],
+      transferred_ids: transferredIds
+    };
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
 module.exports = {
   createLead,
   bulkCreateLeadsWithCopy,
@@ -1701,6 +1841,7 @@ module.exports = {
   getCustomFieldsForLead,
   createDefaultLeadSources,
   createDefaultLeadStatuses,
-  bulkTransferLeads
+  bulkTransferLeads,
+  transferLeadsByFilter
 
 };
