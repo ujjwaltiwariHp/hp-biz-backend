@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { getCompanyById, getCompanyByApiKey } = require('../models/authModel');
+const { getStaffById } = require('../models/staffModel');
 const { errorResponse } = require('../utils/errorResponse');
 const { getSuperAdminById } = require('../models/super-admin-models/authModel');
 const moment = require('moment');
@@ -12,6 +13,20 @@ const safeVerify = (token) => {
   } catch (err) {
     return null;
   }
+};
+
+const isBillingOrAuthRoute = (url) => {
+  const allowedRoutes = [
+    '/select-subscription',
+    '/subscription-status',
+    '/packages',
+    '/logout',
+    '/profile',
+    '/update-profile',
+    '/change-password',
+    '/verify-otp'
+  ];
+  return allowedRoutes.some(route => url.includes(route));
 };
 
 const authenticate = async (req, res, next) => {
@@ -35,7 +50,7 @@ const authenticate = async (req, res, next) => {
 
     const company = await getCompanyById(decoded.id);
     if (!company) {
-      return errorResponse(res, 401, "Invalid or expired token or inactive subscription");
+      return errorResponse(res, 401, "Invalid or expired token or company not found");
     }
 
     if (!company.email_verified) {
@@ -44,19 +59,23 @@ const authenticate = async (req, res, next) => {
 
     const requiresPlanSelection = !company.subscription_package_id;
     const subscriptionEndDate = moment(company.subscription_end_date);
-    const isStatusCheckEndpoint = req.path === '/subscription-status' || req.path === '/api/v1/auth/subscription-status';
+    const isStatusCheckEndpoint = req.originalUrl.includes('/subscription-status');
 
     if (requiresPlanSelection) {
-      // Allow access to select a plan
-    } else if (!isStatusCheckEndpoint) {
-      const PENDING_STATUSES = ['pending', 'payment_received'];
-
-      if (PENDING_STATUSES.includes(company.subscription_status)) {
-        return errorResponse(res, 403, "Subscription pending approval. Please wait for admin verification.");
+      if (!isStatusCheckEndpoint && !isBillingOrAuthRoute(req.originalUrl)) {
+         return errorResponse(res, 403, "Please select a subscription plan to proceed.");
       }
+    } else {
+      const PENDING_STATUSES = ['pending', 'payment_received'];
+      const isPending = PENDING_STATUSES.includes(company.subscription_status);
+      const isExpired = !company.is_active || subscriptionEndDate.isBefore(moment());
 
-      if (!company.is_active || subscriptionEndDate.isBefore(moment())) {
-        return errorResponse(res, 403, "Subscription inactive or expired. Please renew your plan.");
+      if (isPending || isExpired) {
+        if (req.method === 'GET') {
+        } else if (isBillingOrAuthRoute(req.originalUrl)) {
+        } else {
+           return errorResponse(res, 403, "Subscription inactive or expired. Read-only mode active. Please renew your plan.");
+        }
       }
     }
 
@@ -65,9 +84,6 @@ const authenticate = async (req, res, next) => {
     next();
 
   } catch (error) {
-    if (error.name !== 'JsonWebTokenError' && !error.message.includes('jwt') && !error.message.includes('token')) {
-        console.error('Auth Error:', error.message);
-    }
     return errorResponse(res, 401, "Authentication failed");
   }
 };
@@ -97,8 +113,20 @@ const authenticateStaff = async (req, res, next) => {
     }
 
     const company = await getCompanyById(decoded.company_id);
-    if (!company || !company.is_active) {
-      return errorResponse(res, 401, "Company not found or inactive subscription");
+    if (!company) {
+      return errorResponse(res, 401, "Company not found");
+    }
+
+    const subscriptionEndDate = moment(company.subscription_end_date);
+    const isExpired = !company.is_active || subscriptionEndDate.isBefore(moment());
+    const isPending = ['pending', 'payment_received'].includes(company.subscription_status);
+
+    if (isExpired || isPending) {
+        if (req.method === 'GET') {
+        } else if (isBillingOrAuthRoute(req.originalUrl)) {
+        } else {
+            return errorResponse(res, 403, "Company subscription inactive. Read-only mode active.");
+        }
     }
 
     req.staff = staff;
@@ -107,9 +135,6 @@ const authenticateStaff = async (req, res, next) => {
     next();
 
   } catch (error) {
-    if (error.name !== 'JsonWebTokenError' && !error.message.includes('jwt') && !error.message.includes('token')) {
-        console.error('Auth Staff Error:', error.message);
-    }
     return errorResponse(res, 401, "Invalid or expired token");
   }
 };
@@ -158,8 +183,18 @@ const authenticateAny = async (req, res, next) => {
       }
 
       const company = await getCompanyById(decoded.company_id);
-      if (!company || !company.is_active) {
-        return errorResponse(res, 401, "Company not found or inactive subscription");
+      if (!company) {
+        return errorResponse(res, 401, "Company not found");
+      }
+
+      const subscriptionEndDate = moment(company.subscription_end_date);
+      const isExpired = !company.is_active || subscriptionEndDate.isBefore(moment());
+      const isPending = ['pending', 'payment_received'].includes(company.subscription_status);
+
+      if (isExpired || isPending) {
+          if (req.method !== 'GET' && !isBillingOrAuthRoute(req.originalUrl)) {
+              return errorResponse(res, 403, "Company subscription inactive. Read-only mode active.");
+          }
       }
 
       req.staff = staff;
@@ -169,8 +204,19 @@ const authenticateAny = async (req, res, next) => {
     } else if (decoded.type === 'company') {
       const company = await getCompanyById(decoded.id);
 
-      if (!company || (!company.is_active && company.subscription_package_id)) {
-        return errorResponse(res, 401, "Invalid or expired token or inactive subscription");
+      if (!company) {
+        return errorResponse(res, 401, "Invalid or expired token");
+      }
+
+      const requiresPlanSelection = !company.subscription_package_id;
+      const subscriptionEndDate = moment(company.subscription_end_date);
+      const isExpired = !company.is_active || subscriptionEndDate.isBefore(moment());
+      const isPending = ['pending', 'payment_received'].includes(company.subscription_status);
+
+      if (!requiresPlanSelection && (isExpired || isPending)) {
+          if (req.method !== 'GET' && !isBillingOrAuthRoute(req.originalUrl)) {
+              return errorResponse(res, 403, "Subscription inactive or expired. Read-only mode active. Please renew your plan.");
+          }
       }
 
       req.company = company;
@@ -192,9 +238,6 @@ const authenticateAny = async (req, res, next) => {
 
     next();
   } catch (error) {
-    if (error.name !== 'JsonWebTokenError' && !error.message.includes('jwt') && !error.message.includes('token')) {
-        console.error("Auth Middleware Error:", error.message);
-    }
     return errorResponse(res, 401, "Invalid or expired token");
   }
 };

@@ -267,9 +267,9 @@ const login = async (req, res) => {
           const subscriptionEndDate = moment(detailedCompany.subscription_end_date);
           const requiresPlanSelection = !detailedCompany.subscription_package_id;
 
-          if (!requiresPlanSelection && (!detailedCompany.is_active || subscriptionEndDate.isBefore(moment()))) {
-            return errorResponse(res, 403, "Your company subscription is inactive or expired. Please renew your plan.");
-          }
+          const isExpired = detailedCompany.subscription_end_date && subscriptionEndDate.isBefore(moment());
+          const isInactive = !detailedCompany.is_active;
+
 
           dbId = detailedCompany.id;
           userData = detailedCompany;
@@ -285,7 +285,9 @@ const login = async (req, res) => {
               subscription_end_date: detailedCompany.subscription_end_date,
               is_active: detailedCompany.is_active,
               profile_picture: detailedCompany.profile_picture,
-              requires_plan_selection: requiresPlanSelection
+              requires_plan_selection: requiresPlanSelection,
+              is_subscription_expired: isExpired,
+              is_account_inactive: isInactive
             }
           };
         }
@@ -329,7 +331,7 @@ const login = async (req, res) => {
     }
 
     if (!userData) {
-      return errorResponse(res, 401, "Invalid credentials or account not verified/active");
+      return errorResponse(res, 401, "Invalid credentials or account not verified");
     }
 
     const tokenPayload = {
@@ -569,8 +571,16 @@ const selectInitialSubscription = async (req, res) => {
   try {
     const company = req.company;
 
+
     if (company.subscription_package_id) {
-      return errorResponse(res, 400, "Subscription already selected for this company.");
+      const inactiveStatuses = ['expired', 'cancelled', 'rejected'];
+      const isStatusInactive = inactiveStatuses.includes(company.subscription_status);
+
+      const isExpiredByDate = company.subscription_end_date &&
+                              moment(company.subscription_end_date).isBefore(moment());
+      if (!isStatusInactive && !isExpiredByDate) {
+         return errorResponse(res, 400, "An active or pending subscription already exists for this company.");
+      }
     }
 
     const packageData = await getPackageById(package_id);
@@ -633,6 +643,7 @@ const selectInitialSubscription = async (req, res) => {
         subscription_start_date: startDate.toISOString(),
         subscription_end_date: endDate.toISOString()
       });
+
       const newInvoice = await createInvoice({
         company_id: companyId,
         subscription_package_id: package_id,
@@ -667,6 +678,7 @@ const selectInitialSubscription = async (req, res) => {
           }
         });
       } catch (e) {
+        // Notification failure shouldn't block the process
       }
 
       await logSystemEvent({

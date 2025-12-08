@@ -101,7 +101,7 @@ const login = async (req, res) => {
 
     await createSuperAdminSession(superAdmin.id, refreshToken, ip, userAgent);
 
-    res.cookie("refreshToken", refreshToken, {
+    res.cookie("sa_refreshToken", refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
@@ -136,7 +136,7 @@ const login = async (req, res) => {
 
 const refreshToken = async (req, res) => {
   try {
-    const token = req.cookies.refreshToken;
+    const token = req.cookies.sa_refreshToken;
     if (!token) return errorResponse(res, 401, "No refresh token provided");
 
     const decoded = verifyToken(token);
@@ -144,11 +144,10 @@ const refreshToken = async (req, res) => {
 
     const session = await findSuperAdminSession(token);
     if (!session) {
-      res.clearCookie('refreshToken');
+      res.clearCookie('sa_refreshToken');
       return errorResponse(res, 403, "Session expired or invalid");
     }
 
-    // Re-fetch admin to ensure permissions/status haven't changed
     const superAdmin = await getSuperAdminById(decoded.id);
     if (!superAdmin || superAdmin.status === 'inactive') {
        return errorResponse(res, 403, "Account inactive or not found");
@@ -212,7 +211,6 @@ const createAdmin = async (req, res) => {
 
 const getProfile = async (req, res) => {
   try {
-    // Rely entirely on req.superAdmin populated by the middleware
     const superAdmin = req.superAdmin;
 
     if (!superAdmin) {
@@ -309,16 +307,16 @@ const changePassword = async (req, res) => {
 
 const logout = async (req, res) => {
   try {
-    const token = req.cookies.refreshToken;
+    const token = req.cookies.sa_refreshToken;
 
     if (token) {
         await deleteSuperAdminSession(token);
     }
 
-    res.clearCookie("refreshToken", {
+    res.clearCookie("sa_refreshToken", {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
+        sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
         path: "/"
     });
 
