@@ -3,8 +3,9 @@ const {
   getExpiringSubscriptions,
   createNotification,
   markNotificationAsRead,
+  markAllRead,
   getNotificationById,
-  getNotificationStats, // Imported here
+  getNotificationStats,
   generateExpiringNotifications
 } = require('../../models/super-admin-models/notificationModel');
 const { getCompanyById } = require('../../models/super-admin-models/companyModel');
@@ -173,6 +174,18 @@ const markAsRead = async (req, res) => {
   }
 };
 
+const markAllAsRead = async (req, res) => {
+  try {
+    const updatedIds = await markAllRead();
+
+    return successResponse(res, "All notifications marked as read successfully", {
+      marked_count: updatedIds.length
+    });
+  } catch (error) {
+    return errorResponse(res, 500, "Failed to mark all notifications as read");
+  }
+};
+
 const generateNotifications = async (req, res) => {
   try {
     const notifications = await generateExpiringNotifications();
@@ -198,12 +211,12 @@ const getNotificationStatsController = async (req, res) => {
   }
 };
 
-
 module.exports = {
   getNotifications,
   getExpiringSubscriptionsController,
   sendRenewalReminder,
   markAsRead,
+  markAllAsRead,
   generateNotifications,
   getNotificationStatsController
 };
