@@ -582,10 +582,21 @@ const createFollowUpNotification = async (leadId, assignedTo, createdBy, company
   }
 };
 
-const createBulkTransferNotification = async (count, firstLeadId, assignedTo, assignedBy, companyId, assignedByType = 'staff') => {
+const createBulkTransferNotification = async (leadIdsOrCount, assignedTo, assignedBy, companyId, assignedByType = 'staff') => {
   try {
-    let senderName = 'System';
+    let count = 0;
+    let ids = [];
 
+    if (Array.isArray(leadIdsOrCount)) {
+      count = leadIdsOrCount.length;
+      ids = leadIdsOrCount;
+    } else {
+      count = leadIdsOrCount;
+    }
+
+    if (count === 0) return;
+
+    let senderName = 'System';
     if (assignedByType === 'staff') {
       const assignedByResult = await pool.query(
         `SELECT first_name, last_name FROM staff WHERE id = $1`,
@@ -602,42 +613,66 @@ const createBulkTransferNotification = async (count, firstLeadId, assignedTo, as
       senderName = companyResult.rows[0] ? `${companyResult.rows[0].admin_name} (Admin)` : 'Company Admin';
     }
 
-    let title, message, type, relatedId;
+    //  If count > 3, send ONE summary. Else, send individual notifications.
+    if (count > 3) {
+      const title = "Bulk Leads Received";
+      const message = `You have received ${count} new leads transferred from ${senderName}.`;
 
-    if (count === 1) {
-      const leadResult = await pool.query(`SELECT first_name, last_name FROM leads WHERE id = $1`, [firstLeadId]);
-      const leadName = leadResult.rows[0] ? `${leadResult.rows[0].first_name} ${leadResult.rows[0].last_name}` : 'Lead';
+      await Notifications.createNotification({
+        company_id: companyId,
+        staff_id: assignedTo,
+        title,
+        message,
+        type: 'bulk_assignment',
+        related_lead_id: ids.length > 0 ? ids[0] : null, // Link the first lead for reference
+        priority: "high"
+      });
 
-      title = "Lead Transferred";
-      message = `${senderName} has transferred lead "${leadName}" to you.`;
-      type = 'lead_assignment';
-      relatedId = firstLeadId;
+      await sendPushNotification(assignedTo, {
+        title,
+        body: message,
+        data: {
+          type: 'bulk_assignment',
+          count: String(count),
+          companyId: String(companyId)
+        }
+      });
+
     } else {
-      title = "Bulk Leads Received";
-      message = `You have received ${count} new leads transferred from ${senderName}.`;
-      type = 'bulk_assignment';
-      relatedId = null;
-    }
+      if (ids.length > 0) {
+        for (const leadId of ids) {
+          const leadResult = await pool.query(`SELECT first_name, last_name FROM leads WHERE id = $1`, [leadId]);
+          const leadName = leadResult.rows[0] ? `${leadResult.rows[0].first_name} ${leadResult.rows[0].last_name}` : 'Lead';
 
-    await Notifications.createNotification({
-      company_id: companyId,
-      staff_id: assignedTo,
-      title,
-      message,
-      type,
-      related_lead_id: relatedId,
-      priority: "high"
-    });
+          const title = "Lead Transferred";
+          const message = `${senderName} has transferred lead "${leadName}" to you.`;
 
-    await sendPushNotification(assignedTo, {
-      title,
-      body: message,
-      data: {
-        type: type,
-        count: String(count),
-        companyId: String(companyId)
+          await Notifications.createNotification({
+            company_id: companyId,
+            staff_id: assignedTo,
+            title,
+            message,
+            type: 'lead_assignment',
+            related_lead_id: leadId,
+            priority: "high"
+          });
+
+          await sendPushNotification(assignedTo, {
+            title,
+            body: message,
+            data: {
+              type: 'lead_assignment',
+              leadId: String(leadId),
+              companyId: String(companyId)
+            }
+          });
+        }
+      } else {
+         const title = "Leads Received";
+         const message = `You have received ${count} new lead(s) from ${senderName}.`;
+         await sendPushNotification(assignedTo, { title, body: message, data: { type: 'bulk_assignment', companyId: String(companyId) } });
       }
-    });
+    }
 
   } catch (error) {
     console.error('Error creating transfer notification:', error);
