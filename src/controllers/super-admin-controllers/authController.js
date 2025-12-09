@@ -139,7 +139,14 @@ const refreshToken = async (req, res) => {
     const token = req.cookies.sa_refreshToken;
     if (!token) return errorResponse(res, 401, "No refresh token provided");
 
-    const decoded = verifyToken(token);
+    let decoded;
+    try {
+      decoded = verifyToken(token);
+    } catch (err) {
+      res.clearCookie('sa_refreshToken');
+      return errorResponse(res, 403, "Invalid or expired refresh token");
+    }
+
     if (!decoded) return errorResponse(res, 403, "Invalid token");
 
     const session = await findSuperAdminSession(token);

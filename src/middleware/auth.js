@@ -1,19 +1,9 @@
-const jwt = require('jsonwebtoken');
+const { verifyToken } = require('../utils/jwtHelper');
 const { getCompanyById, getCompanyByApiKey } = require('../models/authModel');
 const { getStaffById } = require('../models/staffModel');
 const { errorResponse } = require('../utils/errorResponse');
 const { getSuperAdminById } = require('../models/super-admin-models/authModel');
 const moment = require('moment');
-
-const safeVerify = (token) => {
-  if (!token || typeof token !== 'string') return null;
-  if (token.split('.').length !== 3) return null;
-  try {
-    return jwt.verify(token, process.env.JWT_SECRET);
-  } catch (err) {
-    return null;
-  }
-};
 
 const isBillingOrAuthRoute = (url) => {
   const allowedRoutes = [
@@ -38,9 +28,13 @@ const authenticate = async (req, res, next) => {
       return errorResponse(res, 401, "Access token required");
     }
 
-    const decoded = safeVerify(token);
-
-    if (!decoded) {
+    let decoded;
+    try {
+      decoded = verifyToken(token);
+    } catch (err) {
+      if (err.name === 'TokenExpiredError') {
+        return errorResponse(res, 401, "Token expired");
+      }
       return errorResponse(res, 401, "Invalid or malformed token");
     }
 
@@ -50,7 +44,7 @@ const authenticate = async (req, res, next) => {
 
     const company = await getCompanyById(decoded.id);
     if (!company) {
-      return errorResponse(res, 401, "Invalid or expired token or company not found");
+      return errorResponse(res, 401, "Company not found");
     }
 
     if (!company.email_verified) {
@@ -97,7 +91,15 @@ const authenticateStaff = async (req, res, next) => {
       return errorResponse(res, 401, "Access token required");
     }
 
-    const decoded = safeVerify(token);
+    let decoded;
+    try {
+      decoded = verifyToken(token);
+    } catch (err) {
+      if (err.name === 'TokenExpiredError') {
+        return errorResponse(res, 401, "Token expired");
+      }
+      return errorResponse(res, 401, "Invalid or malformed token");
+    }
 
     if (!decoded || decoded.type !== 'staff') {
       return errorResponse(res, 401, "Staff access required or invalid token");
@@ -170,9 +172,13 @@ const authenticateAny = async (req, res, next) => {
       return errorResponse(res, 401, "Access token required");
     }
 
-    const decoded = safeVerify(token);
-
-    if (!decoded) {
+    let decoded;
+    try {
+      decoded = verifyToken(token);
+    } catch (err) {
+      if (err.name === 'TokenExpiredError') {
+        return errorResponse(res, 401, "Token expired");
+      }
       return errorResponse(res, 401, "Invalid or malformed token");
     }
 
