@@ -65,12 +65,10 @@ const authenticateSuperAdmin = async (req, res, next) => {
             return errorResponse(res, 401, "Access denied. Super admin not found");
         }
 
-        // Check if admin is active
         if (superAdminProfile.status && superAdminProfile.status === 'inactive') {
             return errorResponse(res, 403, "Your account is inactive. Contact administrator");
         }
 
-        // Parse permissions safely
         const parsedPermissions = safeParsePermissions(superAdminProfile.permissions);
 
         req.superAdmin = {
