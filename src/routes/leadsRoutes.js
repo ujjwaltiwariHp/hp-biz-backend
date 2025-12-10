@@ -38,7 +38,8 @@ const {
   updateLeadFollowUp,
   deleteLeadFollowUp,
   downloadSampleCsv,
-  transferLeadController
+  transferLeadController,
+  regenerateApiKey
 } = require('../controllers/leadsController');
 
 const { authenticateAny, requirePermission } = require('../middleware/auth');
@@ -137,5 +138,7 @@ router.patch('/follow-ups/:id/complete', ...subscriptionChain, requirePermission
 
 router.put('/leads/:leadId/followups/:followUpId', ...subscriptionChain, requirePermission('lead_management', 'update'), updateLeadFollowUp);
 router.delete('/leads/:leadId/followups/:followUpId', ...subscriptionChain, requirePermission('lead_management', 'update'), deleteLeadFollowUp);
+
+router.put('/sources/:id/regenerate-key', ...apiAccessPermission, logActivity, regenerateApiKey);
 
 module.exports = router;

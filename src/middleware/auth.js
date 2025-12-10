@@ -156,7 +156,7 @@ const authenticateAny = async (req, res, next) => {
       }
 
       req.company = company;
-      req.userType = 'admin';
+      req.userType = 'api_client';
       req.isExternalApi = true;
       req.leadSourceId = company.source_id;
 
@@ -252,6 +252,14 @@ const requirePermission = (permissionKey, action = null) => {
   return (req, res, next) => {
     if (req.userType === 'admin') {
       return next();
+    }
+
+    if (req.userType === 'api_client') {
+      const allowedApiActions = ['create', 'view'];
+      if (allowedApiActions.includes(action)) {
+        return next();
+      }
+      return errorResponse(res, 403, "API Key is not authorized for this action.");
     }
 
     if (req.staff && req.staff.permissions) {

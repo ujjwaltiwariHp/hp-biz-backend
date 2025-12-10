@@ -1,4 +1,5 @@
 const Lead = require("../models/leadsModel");
+const crypto = require('crypto');
 const { successResponse, successResponseWithPagination } = require("../utils/responseFormatter");
 const { errorResponse } = require("../utils/errorResponse");
 const NotificationService = require("../services/notificationService");
@@ -10,12 +11,26 @@ const createLead = async (req, res) => {
   try {
     const company_id = req.company.id;
 
-   let fieldSeparation;
+    if (req.isExternalApi && req.leadSourceId) {
+      req.body.lead_source_id = req.leadSourceId;
+    }
+
+    if (!req.body.status_id) {
+      const statuses = await Lead.getLeadStatuses(company_id);
+      const defaultStatus = statuses.find(s => s.is_default) || statuses[0];
+      if (defaultStatus) {
+        req.body.status_id = defaultStatus.id;
+      } else {
+        return errorResponse(res, 500, "No lead statuses configured for this company.");
+      }
+    }
+
+    let fieldSeparation;
     try {
       fieldSeparation = await Lead.validateAndSeparateFields(company_id, req.body);
     } catch (error) {
       if (error.message.startsWith("Missing required field")) {
-          return errorResponse(res, 400, error.message);
+        return errorResponse(res, 400, error.message);
       }
       return errorResponse(res, 400, error.message);
     }
@@ -23,8 +38,8 @@ const createLead = async (req, res) => {
     const { standardFields, customFields } = fieldSeparation;
 
     if (!standardFields.first_name || !standardFields.last_name ||
-        (!standardFields.email && !standardFields.phone) ||
-        !standardFields.lead_source_id) {
+      (!standardFields.email && !standardFields.phone) ||
+      !standardFields.lead_source_id) {
       return errorResponse(
         res, 400,
         "First name, last name, email/phone, and lead source are required"
@@ -637,8 +652,29 @@ const createLeadSource = async (req, res) => {
       return errorResponse(res, 400, "Source name is required");
     }
 
-    const newSource = await Lead.createLeadSource({ ...req.body, company_id });
+    const api_key = 'hp_live_' + crypto.randomBytes(16).toString('hex');
+
+    const newSource = await Lead.createLeadSource({ ...req.body, company_id, api_key });
     return successResponse(res, "Lead source created successfully", newSource, 201, req);
+  } catch (err) {
+    return errorResponse(res, 500, err.message);
+  }
+};
+
+const regenerateApiKey = async (req, res) => {
+  try {
+    const companyId = req.company.id;
+    const sourceId = req.params.id;
+
+    const currentSource = await Lead.getLeadSourceById(sourceId, companyId);
+    if (!currentSource) {
+      return errorResponse(res, 404, "Lead source not found");
+    }
+
+    const newApiKey = 'hp_live_' + crypto.randomBytes(16).toString('hex');
+    const updatedSource = await Lead.updateLeadSource(sourceId, { api_key: newApiKey }, companyId);
+
+    return successResponse(res, "API Key regenerated successfully", updatedSource, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -1431,5 +1467,6 @@ module.exports = {
   updateLeadFollowUp,
   deleteLeadFollowUp,
   downloadSampleCsv,
-  transferLeadController
+  transferLeadController,
+  regenerateApiKey
 };

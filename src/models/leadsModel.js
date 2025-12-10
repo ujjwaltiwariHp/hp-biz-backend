@@ -786,11 +786,11 @@ const getLeadSourceById = async (id, companyId) => {
 };
 
 const createLeadSource = async (data) => {
-  const { company_id, source_name, source_type = 'manual' } = data;
+  const { company_id, source_name, source_type = 'manual', api_key } = data;
   const result = await pool.query(
-    `INSERT INTO lead_sources (company_id, source_name, source_type)
-     VALUES ($1, $2, $3) RETURNING *`,
-    [company_id, source_name, source_type]
+    `INSERT INTO lead_sources (company_id, source_name, source_type, api_key)
+     VALUES ($1, $2, $3, $4) RETURNING *`,
+    [company_id, source_name, source_type, api_key]
   );
   return result.rows[0];
 };
