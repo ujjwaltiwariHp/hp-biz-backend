@@ -7,9 +7,9 @@ const pool = new Pool({
     require: true,
     rejectUnauthorized: false,
   },
-  max: 10,
-  idleTimeoutMillis: 2000,
-  connectionTimeoutMillis: 30000,
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 60000,
   allowExitOnIdle: false,
   keepAlive: true
 });

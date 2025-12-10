@@ -49,8 +49,14 @@ const logActivity = (req, res, next) => {
         let staff_id = null;
         let company_id = null;
         let super_admin_id = null;
-
-        if (req.userType === 'staff' && req.staff) {
+        let action_source = 'WEB_APP';
+        if (req.isExternalApi) {
+           action_source = 'EXTERNAL_API';
+           if (req.company) {
+             company_id = req.company.id;
+           }
+        }
+        else if (req.userType === 'staff' && req.staff) {
           staff_id = req.staff.id;
           company_id = req.staff.company_id;
         } else if (req.userType === 'admin' && req.company) {
@@ -78,6 +84,11 @@ const logActivity = (req, res, next) => {
         const ip_address = normalizeIP(rawIP);
 
         let actionDetails = `${req.method} ${req.originalUrl}`;
+
+        // Append source to details for visibility in logs
+        if (action_source === 'EXTERNAL_API') {
+            actionDetails += ` [VIA API KEY]`;
+        }
 
         if (req.body && req.body.lead_ids && Array.isArray(req.body.lead_ids)) {
             actionDetails += ` (Bulk Action: ${req.body.lead_ids.length} items)`;
@@ -156,6 +167,7 @@ const getActionType = (method, url) => {
       if (lowerUrl.includes('/complete')) return 'COMPLETE';
       if (lowerUrl.includes('/activate')) return 'ACTIVATE';
       if (lowerUrl.includes('/deactivate')) return 'DEACTIVATE';
+      if (lowerUrl.includes('/regenerate-key')) return 'REGENERATE_KEY'; // Added specific action
       return 'UPDATE';
     case 'DELETE':
       if (lowerUrl.includes('/bulk')) return 'BULK_DELETE';
