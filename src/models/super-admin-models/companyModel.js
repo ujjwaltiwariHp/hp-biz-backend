@@ -321,12 +321,15 @@ const getDashboardStats = async (startDate, endDate) => {
       ORDER BY count DESC
     `;
 
+    // UPDATED: Calculates top 5 active companies based on TOTAL logs (User Activity + System Logs)
     const topActiveCompaniesQuery = `
-      SELECT c.company_name, COUNT(ual.id)::integer as activity_count
+      SELECT
+        c.company_name,
+        (
+          COALESCE((SELECT COUNT(*) FROM user_activity_logs WHERE company_id = c.id), 0) +
+          COALESCE((SELECT COUNT(*) FROM system_logs WHERE company_id = c.id), 0)
+        )::integer as activity_count
       FROM companies c
-      JOIN user_activity_logs ual ON c.id = ual.company_id
-      WHERE ual.created_at >= NOW() - INTERVAL '30 days'
-      GROUP BY c.id, c.company_name
       ORDER BY activity_count DESC
       LIMIT 5
     `;
