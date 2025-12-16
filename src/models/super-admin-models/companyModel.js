@@ -64,8 +64,6 @@ const getAllCompanies = async (limit = 10, offset = 0, search = '', status = '',
   }
 };
 
-// src/models/super-admin-models/companyModel.js
-
 const getCompanyById = async (id) => {
   try {
     const query = `
@@ -285,18 +283,110 @@ const getDashboardStats = async (startDate, endDate) => {
     const start = startDate ? new Date(startDate) : new Date(new Date().setDate(new Date().getDate() - 30));
     const end = endDate ? new Date(endDate) : new Date();
 
-    const query = `
+    const basicCountsQuery = `
       SELECT
         COUNT(*)::integer as total_companies,
         COUNT(*) FILTER (WHERE is_active = true)::integer as active_companies,
         COUNT(*) FILTER (WHERE is_active = false)::integer as inactive_companies,
-        -- Dynamic count based on date range
         COUNT(*) FILTER (WHERE created_at >= $1 AND created_at <= $2)::integer as new_companies_period
       FROM companies
     `;
 
-    const result = await pool.query(query, [start, end]);
-    return result.rows[0];
+    const revenueQuery = `
+      SELECT COALESCE(SUM(total_amount), 0) as total_revenue
+      FROM invoices
+      WHERE status = 'paid'
+    `;
+
+    const mrrQuery = `
+      SELECT
+        COALESCE(SUM(
+          CASE
+            WHEN sp.is_trial = true THEN 0
+            WHEN sp.price_monthly > 0 THEN sp.price_monthly
+            ELSE 0
+          END
+        ), 0) as mrr_estimate
+      FROM companies c
+      JOIN subscription_packages sp ON c.subscription_package_id = sp.id
+      WHERE c.is_active = true AND c.subscription_status = 'approved'
+    `;
+
+    const packageDistQuery = `
+      SELECT sp.name, COUNT(c.id)::integer as count, sp.is_trial
+      FROM companies c
+      JOIN subscription_packages sp ON c.subscription_package_id = sp.id
+      WHERE c.is_active = true
+      GROUP BY sp.name, sp.is_trial
+      ORDER BY count DESC
+    `;
+
+    const topActiveCompaniesQuery = `
+      SELECT c.company_name, COUNT(ual.id)::integer as activity_count
+      FROM companies c
+      JOIN user_activity_logs ual ON c.id = ual.company_id
+      WHERE ual.created_at >= NOW() - INTERVAL '30 days'
+      GROUP BY c.id, c.company_name
+      ORDER BY activity_count DESC
+      LIMIT 5
+    `;
+
+    const churnRiskQuery = `
+      SELECT company_name, admin_email, subscription_end_date
+      FROM companies
+      WHERE subscription_status = 'expired'
+      AND subscription_end_date >= NOW() - INTERVAL '30 days'
+      LIMIT 5
+    `;
+
+    const [
+      basicRes,
+      revenueRes,
+      mrrRes,
+      packageRes,
+      activeCompRes,
+      churnRes
+    ] = await Promise.all([
+      pool.query(basicCountsQuery, [start, end]),
+      pool.query(revenueQuery),
+      pool.query(mrrQuery),
+      pool.query(packageDistQuery),
+      pool.query(topActiveCompaniesQuery),
+      pool.query(churnRiskQuery)
+    ]);
+
+    const basic = basicRes.rows[0];
+    const packages = packageRes.rows;
+
+    const totalActive = packages.reduce((acc, curr) => acc + curr.count, 0);
+    const freeCount = packages.filter(p => p.is_trial).reduce((acc, curr) => acc + curr.count, 0);
+    const paidCount = totalActive - freeCount;
+
+    return {
+      overview: {
+        total_companies: basic.total_companies,
+        active_companies: basic.active_companies,
+        inactive_companies: basic.inactive_companies,
+        new_companies_period: basic.new_companies_period
+      },
+      financials: {
+        total_revenue: parseFloat(revenueRes.rows[0].total_revenue).toFixed(2),
+        mrr_estimate: parseFloat(mrrRes.rows[0].mrr_estimate).toFixed(2),
+        currency: 'INR'
+      },
+      packages: {
+        distribution: packages,
+        paid_vs_free: {
+          paid: paidCount,
+          free: freeCount
+        }
+      },
+      engagement: {
+        top_active_companies: activeCompRes.rows,
+        recent_expiries: churnRes.rows
+      }
+    };
+
   } catch (error) {
     throw error;
   }
@@ -309,19 +399,16 @@ const getCompanyUsageReport = async (startDate, endDate) => {
         c.id, c.company_name, c.unique_company_id,
         sp.name as package_name,
 
-        -- 1. Staff Count (Total active staff, independent of date range)
         COALESCE(
           (SELECT COUNT(s.id)::integer FROM staff s
            WHERE s.company_id = c.id AND s.status = 'active'),
         0) as staff_count,
 
-        -- 2. Leads Created in Period
         COALESCE(
           (SELECT COUNT(l.id)::integer FROM leads l
            WHERE l.company_id = c.id AND l.created_at BETWEEN $1 AND $2),
         0) as leads_count,
 
-        -- 3. Activities Logged in Period
         COALESCE(
           (SELECT COUNT(la.id)::integer FROM lead_activities la
            WHERE la.created_at BETWEEN $1 AND $2
@@ -354,7 +441,6 @@ const createCompanyBySuperAdmin = async (data) => {
     let unique_company_id = generateUniqueId();
     let isUnique = false;
 
-    // Ensure unique_company_id is unique
     while (!isUnique) {
         const { rows: existing } = await pool.query(
             'SELECT id FROM companies WHERE unique_company_id = $1',

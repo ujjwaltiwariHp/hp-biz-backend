@@ -8,8 +8,8 @@ const pool = new Pool({
     rejectUnauthorized: false,
   },
   max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 60000,
+  idleTimeoutMillis: 5000,
+  connectionTimeoutMillis: 10000,
   allowExitOnIdle: false,
   keepAlive: true
 });
