@@ -12,7 +12,7 @@ const logUserActivity = async (activityData) => {
   const {
     staff_id,
     company_id,
-    super_admin_id, // NEW
+    super_admin_id,
     action_type,
     resource_type,
     resource_id,
@@ -53,7 +53,6 @@ const logUserActivity = async (activityData) => {
 
     return logEntry;
   } catch (error) {
-    console.error("Log Activity Error:", error);
     return null;
   }
 };
@@ -62,7 +61,7 @@ const logSystemEvent = async (logData) => {
   const {
     company_id,
     staff_id,
-    super_admin_id, // NEW
+    super_admin_id,
     log_level,
     log_category,
     message,
@@ -100,7 +99,6 @@ const logSystemEvent = async (logData) => {
 
     return logEntry;
   } catch (error) {
-    console.error('System logging error:', error);
     return null;
   }
 };
@@ -119,7 +117,6 @@ const getUserActivityLogs = async (filters = {}) => {
     limit = 50
   } = filters;
 
-  // Base Query using Explicit JOINs
   let query = `
     SELECT
       ual.id, ual.staff_id, ual.company_id, ual.super_admin_id,
@@ -127,7 +124,6 @@ const getUserActivityLogs = async (filters = {}) => {
       HOST(ual.ip_address) as ip_address,
       TO_CHAR(ual.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at,
 
-      -- Determine User Name
       CASE
         WHEN ual.super_admin_id IS NOT NULL THEN sa.name
         WHEN ual.staff_id IS NOT NULL THEN COALESCE(s.first_name || ' ' || s.last_name, 'Staff')
@@ -135,7 +131,6 @@ const getUserActivityLogs = async (filters = {}) => {
         ELSE 'System'
       END as user_name,
 
-      -- Determine Email
       CASE
         WHEN ual.super_admin_id IS NOT NULL THEN sa.email
         WHEN ual.staff_id IS NOT NULL THEN s.email
@@ -143,14 +138,12 @@ const getUserActivityLogs = async (filters = {}) => {
         ELSE 'System'
       END as email,
 
-      -- Determine Context
       CASE
         WHEN ual.super_admin_id IS NOT NULL THEN 'Super Admin'
         WHEN ual.company_id IS NOT NULL THEN c.company_name
         ELSE 'System'
       END as company_name,
 
-      -- User Type Label
       CASE
         WHEN ual.super_admin_id IS NOT NULL THEN 'Super Admin'
         WHEN ual.staff_id IS NOT NULL THEN 'Staff'
@@ -185,7 +178,6 @@ const getUserActivityLogs = async (filters = {}) => {
 
   if (company_id !== undefined) {
     if (company_id === null) {
-        // Specifically asking for Non-Company (Super Admin) logs
         query += ` AND ual.company_id IS NULL`;
     } else {
         query += ` AND ual.company_id = $${paramCount}`;
@@ -463,7 +455,6 @@ const getTotalSystemLogsCount = async (filters = {}) => {
     }
   };
 
-// Keep other exports as they were
 const cleanOldLogs = async (daysToKeep = 90) => {
     try {
       const cutoffDate = new Date();

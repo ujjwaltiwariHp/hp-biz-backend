@@ -63,6 +63,7 @@ const getCompanies = async (req, res) => {
     return errorResponse(res, 500, "Failed to retrieve companies");
   }
 };
+
 const getCompany = async (req, res) => {
   try {
     const { id } = req.params;
@@ -267,20 +268,10 @@ const getDashboard = async (req, res) => {
 
     const stats = await getDashboardStats(startDate, endDate);
 
-    if (!stats) {
-      return successResponse(res, "Dashboard stats retrieved successfully", {
-        stats: {
-          total_companies: 0,
-          active_companies: 0,
-          inactive_companies: 0,
-          new_companies_period: 0
-        }
-      });
-    }
+    return successResponse(res, "Dashboard KPI data retrieved successfully", {
+      dashboard: stats
+    }, 200, req);
 
-    return successResponse(res, "Dashboard stats retrieved successfully", {
-      stats
-    });
   } catch (error) {
     return errorResponse(res, 500, "Failed to retrieve dashboard stats");
   }
