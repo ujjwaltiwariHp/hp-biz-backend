@@ -1,6 +1,6 @@
 const pool = require("../config/database");
 
-const getStaffPerformanceMetrics = async (staffId, companyId, periodType = 'monthly', periodStart = null, periodEnd = null) => {
+const getStaffPerformanceMetrics = async (staffId, companyId, periodType = 'monthly', periodStart = null, periodEnd = null, filters = {}) => {
   let dateFilter = '';
   const params = [staffId, companyId];
   let paramIndex = 3;
@@ -14,6 +14,18 @@ const getStaffPerformanceMetrics = async (staffId, companyId, periodType = 'mont
   if (periodEnd) {
     dateFilter += ` AND l.created_at <= $${paramIndex}`;
     params.push(periodEnd);
+    paramIndex++;
+  }
+
+  if (filters.statusIds && filters.statusIds.length > 0) {
+    dateFilter += ` AND l.status_id = ANY($${paramIndex})`;
+    params.push(filters.statusIds);
+    paramIndex++;
+  }
+
+  if (filters.sourceIds && filters.sourceIds.length > 0) {
+    dateFilter += ` AND l.lead_source_id = ANY($${paramIndex})`;
+    params.push(filters.sourceIds);
     paramIndex++;
   }
 
@@ -83,7 +95,7 @@ const getStaffPerformanceMetrics = async (staffId, companyId, periodType = 'mont
        COUNT(CASE WHEN activity_type = 'meeting' THEN 1 END) as meetings_held
      FROM lead_activities la
      INNER JOIN leads l ON la.lead_id = l.id
-     WHERE la.staff_id = $1 AND l.company_id = $2 ${dateFilter}`,
+     WHERE la.staff_id = $1 AND l.company_id = $2 ${dateFilter.replace(/l\./g, 'l.')}`,
     params
   );
 
@@ -276,11 +288,6 @@ const getKpiDashboardData = async (companyId, periodType = 'monthly') => {
   const params = [companyId];
   let paramIndex = 2;
 
-  // The logic to calculate start/end date based on periodType needs to be
-  // in the controller to apply timezone. Since it's not there for dashboard,
-  // we default to a basic safe period here, but ideally this logic moves.
-  // For now, we keep the original logic for non-explicit dates in the model,
-  // as the controller is not passing start/end for the dashboard explicitly.
   const now = new Date();
   let startDate;
 
@@ -380,7 +387,7 @@ const getKpiDashboardData = async (companyId, periodType = 'monthly') => {
   };
 };
 
-const getCompanyPerformanceMetrics = async (companyId, periodType = 'monthly', periodStart = null, periodEnd = null) => {
+const getCompanyPerformanceMetrics = async (companyId, periodType = 'monthly', periodStart = null, periodEnd = null, filters = {}) => {
   let dateFilter = '';
   const params = [companyId];
   let paramIndex = 2;
@@ -394,6 +401,18 @@ const getCompanyPerformanceMetrics = async (companyId, periodType = 'monthly', p
   if (periodEnd) {
     dateFilter += ` AND l.created_at <= $${paramIndex}`;
     params.push(periodEnd);
+    paramIndex++;
+  }
+
+  if (filters.statusIds && filters.statusIds.length > 0) {
+    dateFilter += ` AND l.status_id = ANY($${paramIndex})`;
+    params.push(filters.statusIds);
+    paramIndex++;
+  }
+
+  if (filters.sourceIds && filters.sourceIds.length > 0) {
+    dateFilter += ` AND l.lead_source_id = ANY($${paramIndex})`;
+    params.push(filters.sourceIds);
     paramIndex++;
   }
 
@@ -570,6 +589,278 @@ const getSourcePerformanceReport = async (companyId, periodStart = null, periodE
   return result.rows;
 };
 
+const getStatusWiseReport = async (companyId, filters) => {
+  const { periodStart, periodEnd, statusIds, sourceIds } = filters;
+  let dateFilter = '';
+  const params = [companyId];
+  let paramIndex = 2;
+
+  if (periodStart) {
+    dateFilter += ` AND l.created_at >= $${paramIndex}`;
+    params.push(periodStart);
+    paramIndex++;
+  }
+
+  if (periodEnd) {
+    dateFilter += ` AND l.created_at <= $${paramIndex}`;
+    params.push(periodEnd);
+    paramIndex++;
+  }
+
+  if (statusIds && statusIds.length > 0) {
+    dateFilter += ` AND ls.id = ANY($${paramIndex})`;
+    params.push(statusIds);
+    paramIndex++;
+  }
+
+  if (sourceIds && sourceIds.length > 0) {
+    dateFilter += ` AND l.lead_source_id = ANY($${paramIndex})`;
+    params.push(sourceIds);
+    paramIndex++;
+  }
+
+  const result = await pool.query(
+    `SELECT
+       ls.id,
+       ls.status_name,
+       ls.status_color,
+       COUNT(l.id) as count,
+       ROUND(
+         (COUNT(l.id)::numeric / NULLIF((SELECT COUNT(*) FROM leads l2 WHERE l2.company_id = $1 ${dateFilter.replace(/l\./g, 'l2.').replace(/ls\./g, 'l2.status_id = ANY')}), 0)) * 100,
+         2
+       ) as percentage
+     FROM lead_statuses ls
+     LEFT JOIN leads l ON ls.id = l.status_id AND l.company_id = $1 ${dateFilter}
+     WHERE ls.company_id = $1
+     GROUP BY ls.id, ls.status_name, ls.status_color
+     ORDER BY ls.sort_order ASC`,
+    params
+  );
+
+  return result.rows;
+};
+
+const getUserLeadOpsReport = async (companyId, filters) => {
+  const { periodStart, periodEnd, staffIds } = filters;
+  let dateFilter = '';
+  let activityDateFilter = '';
+  let followUpDateFilter = '';
+  const params = [companyId];
+  let paramIndex = 2;
+
+  if (periodStart) {
+    dateFilter += ` AND l.created_at >= $${paramIndex}`;
+    activityDateFilter += ` AND la.created_at >= $${paramIndex}`;
+    followUpDateFilter += ` AND fr.created_at >= $${paramIndex}`;
+    params.push(periodStart);
+    paramIndex++;
+  }
+
+  if (periodEnd) {
+    dateFilter += ` AND l.created_at <= $${paramIndex}`;
+    activityDateFilter += ` AND la.created_at <= $${paramIndex}`;
+    followUpDateFilter += ` AND fr.created_at <= $${paramIndex}`;
+    params.push(periodEnd);
+    paramIndex++;
+  }
+
+  let userFilter = '';
+  if (staffIds && staffIds.length > 0) {
+    userFilter = ` AND s.id = ANY($${paramIndex})`;
+    params.push(staffIds);
+    paramIndex++;
+  }
+
+  const result = await pool.query(
+    `SELECT
+       s.id,
+       CONCAT(s.first_name, ' ', s.last_name) as user_name,
+       COUNT(DISTINCT l.id) as total_leads,
+       COUNT(DISTINCT CASE
+         WHEN l.last_contacted IS NOT NULL
+           OR EXISTS (SELECT 1 FROM lead_activities la WHERE la.lead_id = l.id AND la.staff_id = s.id ${activityDateFilter.replace(/\$/g, '$')})
+           OR EXISTS (SELECT 1 FROM follow_up_reminders fr WHERE fr.lead_id = l.id AND fr.staff_id = s.id ${followUpDateFilter.replace(/\$/g, '$')})
+         THEN l.id
+       END) as worked_count,
+       COUNT(DISTINCT CASE
+         WHEN l.last_contacted IS NULL
+           AND NOT EXISTS (SELECT 1 FROM lead_activities la WHERE la.lead_id = l.id AND la.staff_id = s.id ${activityDateFilter.replace(/\$/g, '$')})
+           AND NOT EXISTS (SELECT 1 FROM follow_up_reminders fr WHERE fr.lead_id = l.id AND fr.staff_id = s.id ${followUpDateFilter.replace(/\$/g, '$')})
+         THEN l.id
+       END) as not_worked_count,
+       (
+         SELECT COUNT(*)
+         FROM lead_activities la
+         WHERE la.staff_id = s.id AND la.activity_type = 'lead_transfer' ${activityDateFilter.replace(/\$/g, '$')}
+       ) as transferred_out,
+       COUNT(DISTINCT CASE WHEN l.assigned_by IS NOT NULL AND l.assigned_by != s.id THEN l.id END) as transferred_in
+     FROM staff s
+     LEFT JOIN leads l ON s.id = l.assigned_to AND l.company_id = $1 ${dateFilter}
+     WHERE s.company_id = $1 AND s.status = 'active' ${userFilter}
+     GROUP BY s.id, s.first_name, s.last_name
+     ORDER BY total_leads DESC`,
+    params
+  );
+
+  return result.rows;
+};
+
+const getUserStatusMatrix = async (companyId, filters) => {
+  const { periodStart, periodEnd, staffIds, statusIds } = filters;
+  let dateFilter = '';
+  const params = [companyId];
+  let paramIndex = 2;
+
+  if (periodStart) {
+    dateFilter += ` AND l.created_at >= $${paramIndex}`;
+    params.push(periodStart);
+    paramIndex++;
+  }
+
+  if (periodEnd) {
+    dateFilter += ` AND l.created_at <= $${paramIndex}`;
+    params.push(periodEnd);
+    paramIndex++;
+  }
+
+  let userFilter = '';
+  if (staffIds && staffIds.length > 0) {
+    userFilter = ` AND s.id = ANY($${paramIndex})`;
+    params.push(staffIds);
+    paramIndex++;
+  }
+
+  let statusFilter = '';
+  if (statusIds && statusIds.length > 0) {
+    statusFilter = ` AND ls.id = ANY($${paramIndex})`;
+    params.push(statusIds);
+    paramIndex++;
+  }
+
+  const result = await pool.query(
+    `SELECT
+       s.id as staff_id,
+       CONCAT(s.first_name, ' ', s.last_name) as user_name,
+       ls.id as status_id,
+       ls.status_name,
+       ls.status_color,
+       COUNT(l.id) as lead_count
+     FROM staff s
+     CROSS JOIN lead_statuses ls
+     LEFT JOIN leads l ON s.id = l.assigned_to AND ls.id = l.status_id AND l.company_id = $1 ${dateFilter}
+     WHERE s.company_id = $1 AND s.status = 'active' AND ls.company_id = $1 ${userFilter} ${statusFilter}
+     GROUP BY s.id, s.first_name, s.last_name, ls.id, ls.status_name, ls.status_color, ls.sort_order
+     ORDER BY s.id, ls.sort_order`,
+    params
+  );
+
+  const matrix = {};
+  result.rows.forEach(row => {
+    if (!matrix[row.staff_id]) {
+      matrix[row.staff_id] = {
+        user_id: row.staff_id,
+        user_name: row.user_name,
+        statuses: []
+      };
+    }
+    matrix[row.staff_id].statuses.push({
+      status_id: row.status_id,
+      status_name: row.status_name,
+      status_color: row.status_color,
+      count: parseInt(row.lead_count)
+    });
+  });
+
+  return Object.values(matrix);
+};
+
+const getMostActiveStaff = async (companyId, startDate, endDate) => {
+  const query = `
+    SELECT
+      s.id,
+      CONCAT(s.first_name, ' ', s.last_name) as staff_name,
+      COUNT(ual.id) as action_count,
+      MAX(ual.created_at) as last_active
+    FROM user_activity_logs ual
+    JOIN staff s ON ual.staff_id = s.id
+    WHERE ual.company_id = $1
+      AND ual.created_at >= $2
+      AND ual.created_at <= $3
+      AND ual.action_type NOT LIKE 'VIEW%'
+      AND ual.action_type NOT IN ('SEARCH', 'LOGOUT')
+    GROUP BY s.id, s.first_name, s.last_name
+    ORDER BY action_count DESC
+    LIMIT 5
+  `;
+  const result = await pool.query(query, [companyId, startDate, endDate]);
+  return result.rows;
+};
+
+const getMostValuableLeads = async (companyId) => {
+  const query = `
+    SELECT
+      l.id,
+      CONCAT(l.first_name, ' ', l.last_name) as lead_name,
+      l.company_name,
+      l.lead_value,
+      ls.status_name,
+      COALESCE(s.first_name || ' ' || s.last_name, 'Unassigned') as assigned_to
+    FROM leads l
+    LEFT JOIN lead_statuses ls ON l.status_id = ls.id
+    LEFT JOIN staff s ON l.assigned_to = s.id
+    WHERE l.company_id = $1
+      AND l.lead_value > 0
+      AND ls.is_final = false
+    ORDER BY l.lead_value DESC
+    LIMIT 5
+  `;
+  const result = await pool.query(query, [companyId]);
+  return result.rows;
+};
+
+const getCompanyComprehensiveReport = async (companyId, filters) => {
+  const { periodStart, periodEnd } = filters;
+
+  const [
+    generalMetrics,
+    statusReport,
+    sourceReport,
+    topActiveStaff,
+    topValuableLeads,
+    staffPerformance
+  ] = await Promise.all([
+    getCompanyPerformanceMetrics(companyId, 'custom', periodStart, periodEnd, filters),
+
+    getStatusWiseReport(companyId, filters),
+
+    getSourcePerformanceReport(companyId, periodStart, periodEnd),
+
+    getMostActiveStaff(companyId, periodStart, periodEnd),
+
+    getMostValuableLeads(companyId),
+
+    getAllStaffPerformance(companyId, 'custom', periodStart, periodEnd)
+  ]);
+
+  const topPerformers = staffPerformance
+    .sort((a, b) => b.total_deal_value - a.total_deal_value)
+    .slice(0, 5);
+
+  return {
+    overview: {
+      total_leads: generalMetrics.total_leads,
+      total_revenue: generalMetrics.total_revenue,
+      conversion_rate: generalMetrics.overall_conversion_rate,
+      active_staff_count: generalMetrics.active_staff_count
+    },
+    funnel_status: statusReport,
+    lead_sources: sourceReport,
+    top_performers: topPerformers,
+    most_active_users: topActiveStaff,
+    high_value_opportunities: topValuableLeads
+  };
+};
+
 module.exports = {
   getStaffPerformanceMetrics,
   getAllStaffPerformance,
@@ -577,5 +868,11 @@ module.exports = {
   getKpiDashboardData,
   getCompanyPerformanceMetrics,
   getLeadConversionReport,
-  getSourcePerformanceReport
+  getSourcePerformanceReport,
+  getStatusWiseReport,
+  getUserLeadOpsReport,
+  getUserStatusMatrix,
+  getCompanyComprehensiveReport,
+  getMostActiveStaff,
+  getMostValuableLeads
 };
