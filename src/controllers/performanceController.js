@@ -4,261 +4,96 @@ const { errorResponse } = require("../utils/errorResponse");
 const { parseAndConvertToUTC } = require('../utils/timezoneHelper');
 const { generateStaffReportPdf, generateCompanyReportPdf } = require('../utils/reportPdfGenerator');
 
-const getStaffComprehensiveReport = async (req, res) => {
+const getDates = (req) => {
+  let start = req.query.period_start ? parseAndConvertToUTC(req.query.period_start, req.timezone) : null;
+  let end = req.query.period_end ? parseAndConvertToUTC(req.query.period_end, req.timezone) : null;
+  return { start, end };
+};
+
+const getFilters = (req) => {
+  const statusIds = req.query.status_ids ? req.query.status_ids.split(',').map(Number) : [];
+  const sourceIds = req.query.source_ids ? req.query.source_ids.split(',').map(Number) : [];
+  return { statusIds, sourceIds };
+};
+
+const getDashboard = async (req, res) => {
   try {
-    const companyId = req.company.id;
+    const data = await Performance.getKpiDashboardData(req.company.id, req.query.period_type || 'monthly');
+    return successResponse(res, "Dashboard data fetched", data, 200, req);
+  } catch (err) {
+    return errorResponse(res, 500, err.message);
+  }
+};
+
+const getStaffReport = async (req, res) => {
+  try {
+    const { company } = req;
     const staffId = parseInt(req.params.staffId);
-    const periodType = req.query.period_type || 'monthly';
+    const { start, end } = getDates(req);
+    const { statusIds, sourceIds } = getFilters(req);
 
-    let periodStart = req.query.period_start ? parseAndConvertToUTC(req.query.period_start, req.timezone) : null;
-    let periodEnd = req.query.period_end ? parseAndConvertToUTC(req.query.period_end, req.timezone) : null;
+    if (isNaN(staffId)) return errorResponse(res, 400, "Invalid Staff ID");
 
-    if (!staffId || isNaN(staffId)) {
-      return errorResponse(res, 400, "Valid staff ID is required");
-    }
+    const statusData = await Performance.getStatusBreakdown(company.id, { periodStart: start, periodEnd: end, staffIds: [staffId], statusIds, sourceIds });
+    const opsData = await Performance.getUserLeadOpsReport(company.id, { periodStart: start, periodEnd: end, staffIds: [staffId] });
+    const timeline = await Performance.getStaffTimeline(staffId, company.id);
+    const activityCounts = await Performance.getStaffPerformanceMetrics(staffId, company.id, null, start, end);
 
-    if (req.staff && req.staff.id !== staffId) {
-      const isAuthorized = req.staff.role_permissions?.includes('view_all_performance') || false;
-      if (!isAuthorized) {
-        return errorResponse(res, 403, "Not authorized to view other staff performance");
-      }
-    }
+    let totalLeads = 0, closed = 0;
+    statusData.forEach(s => {
+      totalLeads += s.count;
+      if (s.is_converted) closed += s.count;
+    });
 
-    // Parse filters
-    const filters = {
-        statusIds: req.query.status_ids ? req.query.status_ids.split(',').map(id => parseInt(id)) : [],
-        sourceIds: req.query.source_ids ? req.query.source_ids.split(',').map(id => parseInt(id)) : []
-    };
+    const ops = opsData[0] || {};
 
-    const [performance, timeline, opsReport, statusMatrix] = await Promise.all([
-      Performance.getStaffPerformanceMetrics(staffId, companyId, periodType, periodStart, periodEnd, filters),
-      Performance.getStaffTimeline(staffId, companyId, 30),
-      Performance.getUserLeadOpsReport(companyId, { periodStart, periodEnd, staffIds: [staffId] }),
-      Performance.getUserStatusMatrix(companyId, { periodStart, periodEnd, staffIds: [staffId], ...filters })
-    ]);
-
-    const operationalStats = opsReport.length > 0 ? opsReport[0] : {};
-    const statusBreakdown = statusMatrix.length > 0 ? statusMatrix[0].statuses : [];
-
-    const responseData = {
-      ...performance,
-      worked_count: parseInt(operationalStats.worked_count || 0),
-      not_worked_count: parseInt(operationalStats.not_worked_count || 0),
-      transferred_out: parseInt(operationalStats.transferred_out || 0),
-      transferred_in: parseInt(operationalStats.transferred_in || 0),
-      status_breakdown: statusBreakdown,
-      timeline: timeline || []
-    };
-
-    return successResponse(res, "Comprehensive staff report fetched successfully", responseData, 200, req);
-  } catch (err) {
-    if (err.message === "Staff member not found") {
-      return errorResponse(res, 404, err.message);
-    }
-    return errorResponse(res, 500, err.message);
-  }
-};
-
-const getAllStaffPerformance = async (req, res) => {
-  try {
-    const companyId = req.company.id;
-    const periodType = req.query.period_type || 'monthly';
-
-    let periodStart = req.query.period_start ? parseAndConvertToUTC(req.query.period_start, req.timezone) : null;
-    let periodEnd = req.query.period_end ? parseAndConvertToUTC(req.query.period_end, req.timezone) : null;
-
-    const staffPerformance = await Performance.getAllStaffPerformance(
-      companyId, periodType, periodStart, periodEnd
-    );
-
-    return successResponse(res, "Staff performance list fetched successfully", staffPerformance, 200, req);
-  } catch (err) {
-    return errorResponse(res, 500, err.message);
-  }
-};
-
-const getPerformanceDashboard = async (req, res) => {
-  try {
-    const companyId = req.company.id;
-    const periodType = req.query.period_type || 'monthly';
-
-    const dashboardData = await Performance.getKpiDashboardData(companyId, periodType);
-
-    const responseData = {
-      staffPerformance: dashboardData.staffPerformance,
-      kpiOverview: {
-        totalLeads: dashboardData.totalLeads,
-        barChartData: dashboardData.barChartData
+    const report = {
+      id: staffId,
+      name: ops.first_name ? `${ops.first_name} ${ops.last_name}` : 'Staff',
+      metrics: {
+        total_leads: totalLeads,
+        closed_leads: closed,
+        conversion_rate: totalLeads ? ((closed/totalLeads)*100).toFixed(2) : 0,
+        ...activityCounts
       },
-      leadsDistribution: {
-        totalLeads: dashboardData.totalLeads,
-        pieChartData: dashboardData.pieChartData,
-        topPerformer: dashboardData.topPerformer
-      }
+      operations: {
+        worked: ops.worked_count || 0,
+        not_worked: ops.not_worked_count || 0,
+        transferred_in: ops.transferred_in || 0,
+        transferred_out: ops.transferred_out || 0,
+        follow_ups: ops.follow_ups_count || 0
+      },
+      status_breakdown: statusData,
+      timeline
     };
 
-    return successResponse(res, "Performance dashboard data fetched successfully", responseData, 200, req);
+    return successResponse(res, "Staff report generated", report, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
 };
 
-const getCompanyPerformance = async (req, res) => {
+const getCompanyReport = async (req, res) => {
   try {
-    const companyId = req.company.id;
-    const periodType = req.query.period_type || 'monthly';
+    const { company } = req;
+    const { start, end } = getDates(req);
+    const filters = getFilters(req);
 
-    let periodStart = req.query.period_start ? parseAndConvertToUTC(req.query.period_start, req.timezone) : null;
-    let periodEnd = req.query.period_end ? parseAndConvertToUTC(req.query.period_end, req.timezone) : null;
+    const overview = await Performance.getCompanyOverview(company.id, start, end);
+    const funnel = await Performance.getStatusBreakdown(company.id, { periodStart: start, periodEnd: end, ...filters });
+    const sources = await Performance.getSourcePerformance(company.id, start, end);
+    const topStaff = await Performance.getTopPerformers(company.id, start, end);
+    const activeStaff = await Performance.getMostActiveStaff(company.id, start, end);
 
-    const filters = {
-        statusIds: req.query.status_ids ? req.query.status_ids.split(',').map(id => parseInt(id)) : [],
-        sourceIds: req.query.source_ids ? req.query.source_ids.split(',').map(id => parseInt(id)) : []
+    const report = {
+      overview,
+      funnel_status: funnel,
+      lead_sources: sources,
+      top_performers: topStaff,
+      most_active_users: activeStaff
     };
 
-    const performance = await Performance.getCompanyPerformanceMetrics(
-      companyId, periodType, periodStart, periodEnd, filters
-    );
-
-    return successResponse(res, "Company performance metrics fetched successfully", performance, 200, req);
-  } catch (err) {
-    return errorResponse(res, 500, err.message);
-  }
-};
-
-const getLeadConversionReport = async (req, res) => {
-  try {
-    const companyId = req.company.id;
-
-    let periodStart = req.query.period_start ? parseAndConvertToUTC(req.query.period_start, req.timezone) : null;
-    let periodEnd = req.query.period_end ? parseAndConvertToUTC(req.query.period_end, req.timezone) : null;
-
-    const report = await Performance.getLeadConversionReport(companyId, periodStart, periodEnd);
-
-    return successResponse(res, "Lead conversion report generated successfully", report, 200, req);
-  } catch (err) {
-    return errorResponse(res, 500, err.message);
-  }
-};
-
-const getSourcePerformanceReport = async (req, res) => {
-  try {
-    const companyId = req.company.id;
-
-    let periodStart = req.query.period_start ? parseAndConvertToUTC(req.query.period_start, req.timezone) : null;
-    let periodEnd = req.query.period_end ? parseAndConvertToUTC(req.query.period_end, req.timezone) : null;
-
-    const report = await Performance.getSourcePerformanceReport(companyId, periodStart, periodEnd);
-
-    return successResponse(res, "Source performance report generated successfully", report, 200, req);
-  } catch (err) {
-    return errorResponse(res, 500, err.message);
-  }
-};
-
-const getStaffTimeline = async (req, res) => {
-  try {
-    const companyId = req.company.id;
-    const staffId = parseInt(req.params.staffId);
-    const days = req.query.days ? parseInt(req.query.days) : 30;
-
-    if (!staffId || isNaN(staffId)) {
-      return errorResponse(res, 400, "Valid staff ID is required");
-    }
-
-    if (req.staff && req.staff.id !== staffId) {
-      const isAuthorized = req.staff.role_permissions?.includes('view_all_performance') || false;
-      if (!isAuthorized) {
-        return errorResponse(res, 403, "Not authorized to view other staff timeline");
-      }
-    }
-
-    const timeline = await Performance.getStaffTimeline(staffId, companyId, days);
-
-    return successResponse(res, "Staff timeline fetched successfully", timeline, 200, req);
-  } catch (err) {
-    if (err.message === "Staff member not found") {
-      return errorResponse(res, 404, err.message);
-    }
-    return errorResponse(res, 500, err.message);
-  }
-};
-
-const getStatusWiseReport = async (req, res) => {
-  try {
-    const companyId = req.company.id;
-    let periodStart = req.query.period_start ? parseAndConvertToUTC(req.query.period_start, req.timezone) : null;
-    let periodEnd = req.query.period_end ? parseAndConvertToUTC(req.query.period_end, req.timezone) : null;
-
-    let statusIds = [];
-    if (req.query.status_ids) {
-      statusIds = req.query.status_ids.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
-    }
-    let sourceIds = [];
-    if (req.query.source_ids) {
-        sourceIds = req.query.source_ids.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
-    }
-
-    const report = await Performance.getStatusWiseReport(companyId, {
-      periodStart,
-      periodEnd,
-      statusIds,
-      sourceIds
-    });
-
-    return successResponse(res, "Status-wise report generated successfully", report, 200, req);
-  } catch (err) {
-    return errorResponse(res, 500, err.message);
-  }
-};
-
-const getUserOpsReport = async (req, res) => {
-  try {
-    const companyId = req.company.id;
-    let periodStart = req.query.period_start ? parseAndConvertToUTC(req.query.period_start, req.timezone) : null;
-    let periodEnd = req.query.period_end ? parseAndConvertToUTC(req.query.period_end, req.timezone) : null;
-
-    let staffIds = [];
-    if (req.query.staff_ids) {
-      staffIds = req.query.staff_ids.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
-    }
-
-    const report = await Performance.getUserLeadOpsReport(companyId, {
-      periodStart,
-      periodEnd,
-      staffIds
-    });
-
-    return successResponse(res, "User operations report generated successfully", report, 200, req);
-  } catch (err) {
-    return errorResponse(res, 500, err.message);
-  }
-};
-
-const getUserStatusMatrix = async (req, res) => {
-  try {
-    const companyId = req.company.id;
-    let periodStart = req.query.period_start ? parseAndConvertToUTC(req.query.period_start, req.timezone) : null;
-    let periodEnd = req.query.period_end ? parseAndConvertToUTC(req.query.period_end, req.timezone) : null;
-
-    let staffIds = [];
-    if (req.query.staff_ids) {
-      staffIds = req.query.staff_ids.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
-    }
-
-    let statusIds = [];
-    if (req.query.status_ids) {
-      statusIds = req.query.status_ids.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
-    }
-
-    const report = await Performance.getUserStatusMatrix(companyId, {
-      periodStart,
-      periodEnd,
-      staffIds,
-      statusIds
-    });
-
-    return successResponse(res, "User status matrix generated successfully", report, 200, req);
+    return successResponse(res, "Company report generated", report, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -266,244 +101,124 @@ const getUserStatusMatrix = async (req, res) => {
 
 const generateCustomReport = async (req, res) => {
   try {
-    const companyId = req.company.id;
-
-    if (!req.body || typeof req.body !== 'object') {
-      return errorResponse(res, 400, "Request body is required");
-    }
-
+    const { company } = req;
     const {
-      report_type,
-      period_start: raw_period_start,
-      period_end: raw_period_end,
-      staff_ids,
-      status_ids,
-      source_ids
+        report_type,
+        period_start: raw_period_start,
+        period_end: raw_period_end,
+        staff_ids,
+        status_ids,
+        source_ids
     } = req.body;
 
-    if (!report_type) {
-      return errorResponse(res, 400, "Report type is required");
-    }
+    const start = raw_period_start ? parseAndConvertToUTC(raw_period_start, req.timezone) : null;
+    const end = raw_period_end ? parseAndConvertToUTC(raw_period_end, req.timezone) : null;
 
-    let period_start = raw_period_start ? parseAndConvertToUTC(raw_period_start, req.timezone) : null;
-    let period_end = raw_period_end ? parseAndConvertToUTC(raw_period_end, req.timezone) : null;
+    const staffIds = staff_ids ? (Array.isArray(staff_ids) ? staff_ids.map(Number) : [Number(staff_ids)]) : [];
+    const statusIds = status_ids ? (Array.isArray(status_ids) ? status_ids.map(Number) : [Number(status_ids)]) : [];
+    const sourceIds = source_ids ? (Array.isArray(source_ids) ? source_ids.map(Number) : [Number(source_ids)]) : [];
 
-    let reportData = {};
+    let data = {};
 
     switch (report_type) {
-      case 'staff_performance':
-        if (!staff_ids || !Array.isArray(staff_ids) || staff_ids.length === 0) {
-          return errorResponse(res, 400, "Staff IDs are required for staff performance report");
-        }
-
-        const staffReports = [];
-        for (const staffId of staff_ids) {
-          if (isNaN(parseInt(staffId))) {
-            continue;
-          }
-
-          try {
-             const [performance, timeline, opsReport, statusMatrix] = await Promise.all([
-              Performance.getStaffPerformanceMetrics(parseInt(staffId), companyId, 'custom', period_start, period_end, { statusIds: status_ids, sourceIds: source_ids }),
-              Performance.getStaffTimeline(parseInt(staffId), companyId, 30),
-              Performance.getUserLeadOpsReport(companyId, { periodStart: period_start, periodEnd: period_end, staffIds: [parseInt(staffId)] }),
-              Performance.getUserStatusMatrix(companyId, { periodStart: period_start, periodEnd: period_end, staffIds: [parseInt(staffId)], statusIds: status_ids })
-            ]);
-
-            const operationalStats = opsReport.length > 0 ? opsReport[0] : {};
-            const statusBreakdown = statusMatrix.length > 0 ? statusMatrix[0].statuses : [];
-
-            staffReports.push({
-              ...performance,
-              worked_count: parseInt(operationalStats.worked_count || 0),
-              not_worked_count: parseInt(operationalStats.not_worked_count || 0),
-              status_breakdown: statusBreakdown,
-              timeline: timeline
-            });
-          } catch (err) {
-            continue;
-          }
-        }
-
-        if (staffReports.length === 0) {
-          return errorResponse(res, 404, "No valid staff members found for the provided IDs");
-        }
-
-        reportData = { staff_reports: staffReports };
-        break;
-
-      case 'conversion_analysis':
-        reportData = await Performance.getLeadConversionReport(companyId, period_start, period_end);
-        break;
-
-      case 'source_analysis':
-        reportData = await Performance.getSourcePerformanceReport(companyId, period_start, period_end);
-        break;
-
-      case 'company_overview':
-        reportData = await Performance.getCompanyPerformanceMetrics(
-          companyId, 'custom', period_start, period_end, { statusIds: status_ids, sourceIds: source_ids }
-        );
-        break;
-
-      case 'dashboard_summary':
-        reportData = await Performance.getKpiDashboardData(companyId, 'custom');
-        break;
-
-      case 'status_wise':
-        reportData = await Performance.getStatusWiseReport(companyId, {
-          periodStart: period_start,
-          periodEnd: period_end,
-          statusIds: status_ids,
-          sourceIds: source_ids
-        });
-        break;
-
-      case 'user_ops':
-        reportData = await Performance.getUserLeadOpsReport(companyId, {
-          periodStart: period_start,
-          periodEnd: period_end,
-          staffIds: staff_ids
-        });
-        break;
-
-      case 'user_status_matrix':
-        reportData = await Performance.getUserStatusMatrix(companyId, {
-          periodStart: period_start,
-          periodEnd: period_end,
-          staffIds: staff_ids,
-          statusIds: status_ids
-        });
-        break;
-
-      default:
-        return errorResponse(res, 400, "Invalid report type. Supported types: staff_performance, conversion_analysis, source_analysis, company_overview, dashboard_summary, status_wise, user_ops, user_status_matrix");
+        case 'company_report':
+            data = await Performance.getCompanyOverview(company.id, start, end);
+            break;
+        case 'staff_report':
+             if (staffIds.length === 0) return errorResponse(res, 400, "Staff IDs required");
+             const opsData = await Performance.getUserLeadOpsReport(company.id, { periodStart: start, periodEnd: end, staffIds });
+             data = { staff_data: opsData };
+             break;
+        default:
+            return errorResponse(res, 400, "Invalid report type");
     }
 
-    return successResponse(res, "Custom report generated successfully", {
-      report_type,
-      generated_at: new Date(),
-      period: { start: raw_period_start, end: raw_period_end },
-      data: reportData
-    }, 200, req);
+    return successResponse(res, "Custom report generated", data, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
 };
 
-const getOverallCompanyReport = async (req, res) => {
+const downloadStaffPdf = async (req, res) => {
   try {
-    const companyId = req.company.id;
-    // Updated: Default to null (All Time) if no dates provided, instead of current month
-    let periodStart = req.query.period_start ? parseAndConvertToUTC(req.query.period_start, req.timezone) : null;
-    let periodEnd = req.query.period_end ? parseAndConvertToUTC(req.query.period_end, req.timezone) : null;
-
-    const reportData = await Performance.getCompanyComprehensiveReport(companyId, {
-      periodStart,
-      periodEnd
-    });
-
-    return successResponse(res, "Overall company performance report generated successfully", reportData, 200, req);
-  } catch (err) {
-    return errorResponse(res, 500, err.message);
-  }
-};
-
-const downloadStaffReportPDF = async (req, res) => {
-  try {
-    const companyId = req.company.id;
+    const { company } = req;
     const staffId = parseInt(req.params.staffId);
+    const { start, end } = getDates(req);
 
-    // Default to null (All Time) if not provided
-    let periodStart = req.query.period_start ? parseAndConvertToUTC(req.query.period_start, req.timezone) : null;
-    let periodEnd = req.query.period_end ? parseAndConvertToUTC(req.query.period_end, req.timezone) : null;
-
-    const filters = {
-        statusIds: req.query.status_ids ? req.query.status_ids.split(',').map(id => parseInt(id)) : [],
-        sourceIds: req.query.source_ids ? req.query.source_ids.split(',').map(id => parseInt(id)) : []
-    };
-
-    const [performance, timeline, opsReport, statusMatrix] = await Promise.all([
-      Performance.getStaffPerformanceMetrics(staffId, companyId, 'custom', periodStart, periodEnd, filters),
-      Performance.getStaffTimeline(staffId, companyId, 30),
-      Performance.getUserLeadOpsReport(companyId, { periodStart, periodEnd, staffIds: [staffId] }),
-      Performance.getUserStatusMatrix(companyId, { periodStart, periodEnd, staffIds: [staffId], ...filters })
+    const [statusData, opsData, activityCounts, timeline] = await Promise.all([
+        Performance.getStatusBreakdown(company.id, { periodStart: start, periodEnd: end, staffIds: [staffId] }),
+        Performance.getUserLeadOpsReport(company.id, { periodStart: start, periodEnd: end, staffIds: [staffId] }),
+        Performance.getStaffPerformanceMetrics(staffId, company.id, null, start, end),
+        Performance.getStaffTimeline(staffId, company.id)
     ]);
 
-    const operationalStats = opsReport.length > 0 ? opsReport[0] : {};
-    const statusBreakdown = statusMatrix.length > 0 ? statusMatrix[0].statuses : [];
+    const ops = opsData[0] || {};
+    let totalLeads = 0, closed = 0;
+    statusData.forEach(s => { totalLeads += s.count; if (s.is_converted) closed += s.count; });
 
-    const reportData = {
-      ...performance,
-      worked_count: parseInt(operationalStats.worked_count || 0),
-      not_worked_count: parseInt(operationalStats.not_worked_count || 0),
-      transferred_out: parseInt(operationalStats.transferred_out || 0),
-      status_breakdown: statusBreakdown,
-      timeline: timeline || []
+    const data = {
+      name: ops.first_name ? `${ops.first_name} ${ops.last_name}` : 'Staff Member',
+      totalLeads,
+      conversion_rate: totalLeads ? ((closed/totalLeads)*100).toFixed(2) : 0,
+      total_deal_value: 0,
+      worked_count: ops.worked_count || 0,
+      calls_made: activityCounts.calls_made,
+      emails_sent: activityCounts.emails_sent,
+      meetings_held: activityCounts.meetings_held,
+      followUps: ops.follow_ups_count || 0,
+      transferred_out: ops.transferred_out || 0,
+      status_breakdown: statusData,
+      timeline
     };
 
-    // Handle display dates for PDF
-    const startStr = periodStart ? periodStart.toISOString().split('T')[0] : 'All Time';
-    const endStr = periodEnd ? periodEnd.toISOString().split('T')[0] : 'Present';
-
-    const pdfBuffer = await generateStaffReportPdf(reportData.name, {
-        start: startStr,
-        end: endStr
-    }, reportData);
+    const pdfBuffer = await generateStaffReportPdf(data.name, {
+      start: start ? start.toISOString().split('T')[0] : 'All Time',
+      end: end ? end.toISOString().split('T')[0] : 'Present'
+    }, data);
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=staff-report-${staffId}-${Date.now()}.pdf`);
+    res.setHeader('Content-Disposition', `attachment; filename=staff-${staffId}.pdf`);
     res.send(pdfBuffer);
-
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
 };
 
-const downloadCompanyReportPDF = async (req, res) => {
+const downloadCompanyPdf = async (req, res) => {
   try {
-    const companyId = req.company.id;
-    // Default to null (All Time)
-    let periodStart = req.query.period_start ? parseAndConvertToUTC(req.query.period_start, req.timezone) : null;
-    let periodEnd = req.query.period_end ? parseAndConvertToUTC(req.query.period_end, req.timezone) : null;
+    const { company } = req;
+    const { start, end } = getDates(req);
 
-    const reportData = await Performance.getCompanyComprehensiveReport(companyId, {
-      periodStart,
-      periodEnd
-    });
+    const overview = await Performance.getCompanyOverview(company.id, start, end);
+    const funnel = await Performance.getStatusBreakdown(company.id, { periodStart: start, periodEnd: end });
+    const sources = await Performance.getSourcePerformance(company.id, start, end);
+    const topStaff = await Performance.getTopPerformers(company.id, start, end);
 
-    const companyName = req.company.company_name;
+    const data = {
+        overview,
+        funnel_status: funnel,
+        lead_sources: sources,
+        top_performers: topStaff.map(s => ({ name: `${s.first_name} ${s.last_name}`, total_deal_value: 0, closed: s.closed }))
+    };
 
-    const startStr = periodStart ? periodStart.toISOString().split('T')[0] : 'All Time';
-    const endStr = periodEnd ? periodEnd.toISOString().split('T')[0] : 'Present';
-
-    const pdfBuffer = await generateCompanyReportPdf(companyName, {
-        start: startStr,
-        end: endStr
-    }, reportData);
+    const pdfBuffer = await generateCompanyReportPdf(company.company_name, {
+        start: start ? start.toISOString().split('T')[0] : 'All Time',
+        end: end ? end.toISOString().split('T')[0] : 'Present'
+    }, data);
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=company-report-${Date.now()}.pdf`);
+    res.setHeader('Content-Disposition', `attachment; filename=company-report.pdf`);
     res.send(pdfBuffer);
-
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
 };
 
 module.exports = {
-  getStaffComprehensiveReport,
-  getAllStaffPerformance,
-  getPerformanceDashboard,
-  getCompanyPerformance,
-  getStaffTimeline,
-  getLeadConversionReport,
-  getSourcePerformanceReport,
-  getStatusWiseReport,
-  getUserOpsReport,
-  getUserStatusMatrix,
+  getDashboard,
+  getStaffReport,
+  getCompanyReport,
   generateCustomReport,
-  getOverallCompanyReport,
-  downloadStaffReportPDF,
-  downloadCompanyReportPDF
+  downloadStaffPdf,
+  downloadCompanyPdf
 };
