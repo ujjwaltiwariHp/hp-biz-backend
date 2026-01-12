@@ -3,7 +3,7 @@ const sseService = require('../../services/sseService');
 
 const getAllNotifications = async (limit = 10, offset = 0, filters = {}) => {
   try {
-    const { search = '', type = '', priority = '', is_read = '' } = filters;
+    const { search = '', type = '', priority = '', is_read = '', startDate, endDate } = filters;
 
     let query = `
       SELECT
@@ -45,6 +45,18 @@ const getAllNotifications = async (limit = 10, offset = 0, filters = {}) => {
     if (is_read !== '') {
       query += ` AND n.is_read = $${paramIndex}`;
       params.push(is_read === 'true');
+      paramIndex++;
+    }
+
+    if (startDate) {
+      query += ` AND n.created_at >= $${paramIndex}`;
+      params.push(startDate);
+      paramIndex++;
+    }
+
+    if (endDate) {
+      query += ` AND n.created_at <= $${paramIndex}`;
+      params.push(endDate);
       paramIndex++;
     }
 

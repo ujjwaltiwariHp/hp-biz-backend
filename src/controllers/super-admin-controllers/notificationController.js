@@ -14,10 +14,10 @@ const { errorResponse } = require('../../utils/errorResponse');
 
 const getNotifications = async (req, res) => {
   try {
-    const { page = 1, limit = 10, search = '', type = '', priority = '', is_read = '' } = req.query;
+    const { page = 1, limit = 10, search = '', type = '', priority = '', is_read = '', startDate, endDate } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    const filters = { search, type, priority, is_read };
+    const filters = { search, type, priority, is_read, startDate, endDate };
     const notifications = await getAllNotifications(parseInt(limit), offset, filters);
 
     if (notifications.length === 0) {
