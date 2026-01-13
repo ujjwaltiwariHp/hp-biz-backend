@@ -1,1 +1,0 @@
-UPDATE lead_sources SET api_key = 'hp_live_' || md5(random()::text) WHERE api_key IS NULL;
