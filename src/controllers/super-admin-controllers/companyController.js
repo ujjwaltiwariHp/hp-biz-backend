@@ -50,13 +50,13 @@ const getCompanies = async (req, res) => {
     });
 
     return successResponse(res, "Companies retrieved successfully", {
-        companies: companiesData,
-        pagination: {
-          currentPage: parseInt(page),
-          totalPages,
-          totalCount: parseInt(totalCount),
-          hasNext: parseInt(page) < totalPages,
-          hasPrev: parseInt(page) > 1
+      companies: companiesData,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalCount: parseInt(totalCount),
+        hasNext: parseInt(page) < totalPages,
+        hasPrev: parseInt(page) > 1
       }
     });
   } catch (error) {
@@ -81,25 +81,25 @@ const getCompany = async (req, res) => {
     const stats = await getCompanyStats(id);
 
     if (company.features && typeof company.features === 'string') {
-        try {
-            company.features = JSON.parse(company.features);
-        } catch (e) {
-            company.features = [];
-        }
+      try {
+        company.features = JSON.parse(company.features);
+      } catch (e) {
+        company.features = [];
+      }
     }
 
     let daysRemaining = 0;
     if (company.subscription_end_date) {
-        const endDate = new Date(company.subscription_end_date);
-        const diffTime = endDate.getTime() - Date.now();
-        daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        if (daysRemaining < 0) daysRemaining = 0;
+      const endDate = new Date(company.subscription_end_date);
+      const diffTime = endDate.getTime() - Date.now();
+      daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      if (daysRemaining < 0) daysRemaining = 0;
     }
 
     return successResponse(res, "Company retrieved successfully", {
       company: {
-          ...company,
-          days_remaining: daysRemaining
+        ...company,
+        days_remaining: daysRemaining
       },
       stats
     });
@@ -121,10 +121,39 @@ const activateCompanyAccount = async (req, res) => {
       return errorResponse(res, 404, "Company not found");
     }
 
-    if (company.is_active) {
+    if (company.is_active && company.subscription_status !== 'payment_received') {
       return errorResponse(res, 400, "Company is already active");
     }
 
+    // Handle Upgrade Activation (Payment Received)
+    if (company.subscription_status === 'payment_received') {
+      const { getAllInvoicesData } = require('../../models/super-admin-models/invoiceModel');
+      const invoices = await getAllInvoicesData(1, 0, { company_id: id, status: 'payment_received' });
+
+      if (invoices && invoices.length > 0) {
+        const latestInvoice = invoices[0];
+        const updatedCompany = await updateSubscriptionStatusManual(id, req.superAdmin.id, 'approve', {
+          subscription_package_id: latestInvoice.subscription_package_id,
+          subscription_start_date: latestInvoice.billing_period_start,
+          subscription_end_date: latestInvoice.billing_period_end
+        });
+
+        await generateCompanyRegistrationNotification({
+          id: updatedCompany.id,
+          company_name: updatedCompany.company_name,
+          admin_email: updatedCompany.admin_email,
+          subscription_package_id: updatedCompany.subscription_package_id
+        });
+
+        sseService.broadcast('sa_company_list_refresh', { action: 'activated', companyId: id });
+
+        return successResponse(res, "Subscription upgrade approved and activated successfully", {
+          company: updatedCompany
+        });
+      }
+    }
+
+    // Normal Activation
     const updatedCompany = await activateCompany(id);
 
     if (!updatedCompany) {
@@ -345,95 +374,95 @@ const getUsageReport = async (req, res) => {
 };
 
 const createCompanyByAdmin = async (req, res) => {
-    let newCompanyId = null;
-    try {
-        const {
-            company_name,
-            admin_email,
-            admin_name,
-            password,
-            subscription_package_id,
-            subscription_start_date,
-            subscription_end_date,
-            send_welcome_email = true,
-            ...otherData
-        } = req.body;
+  let newCompanyId = null;
+  try {
+    const {
+      company_name,
+      admin_email,
+      admin_name,
+      password,
+      subscription_package_id,
+      subscription_start_date,
+      subscription_end_date,
+      send_welcome_email = true,
+      ...otherData
+    } = req.body;
 
-        const existingCompany = await getCompanyByEmail(admin_email);
-        if (existingCompany) {
-            return errorResponse(res, 409, "A company with this admin email already exists.");
-        }
-
-        const newCompany = await createCompanyBySuperAdmin({
-            company_name,
-            admin_email,
-            admin_name,
-            password,
-            subscription_package_id: parseInt(subscription_package_id),
-            subscription_start_date,
-            subscription_end_date,
-            ...otherData
-        });
-
-        if (!newCompany) {
-            return errorResponse(res, 500, "Failed to create company.");
-        }
-
-        newCompanyId = newCompany.id;
-
-        await Role.createDefaultRoles(newCompany.id);
-        await createDefaultLeadSources(newCompany.id);
-        await createDefaultLeadStatuses(newCompany.id);
-
-        if (send_welcome_email) {
-            const packageData = await getPackageById(parseInt(subscription_package_id));
-            const planName = packageData ? packageData.name : 'Custom Plan';
-            const loginUrl = process.env.APP_LOGIN_URL || 'https://app-login-url.com/login';
-
-            await sendCompanyCreationEmail(
-                admin_email,
-                admin_name,
-                company_name,
-                planName,
-                password,
-                loginUrl
-            );
-        }
-
-        await generateCompanyRegistrationNotification({
-            id: newCompany.id,
-            company_name,
-            admin_email,
-            subscription_package_id
-        });
-
-        sseService.broadcast('sa_company_list_refresh', { action: 'created', companyId: newCompany.id });
-
-        return successResponse(res, "Company created and subscription assigned successfully. Welcome email sent to admin.", {
-            company: {
-                id: newCompany.id,
-                company_name: newCompany.company_name,
-                admin_email: newCompany.admin_email,
-                created_at: newCompany.created_at,
-                subscription_package_id: parseInt(subscription_package_id)
-            }
-        }, 201);
-
-    } catch (error) {
-        if (newCompanyId) {
-             console.error(`Rolling back creation for company ${newCompanyId} due to error:`, error.message);
-             try {
-                await deleteCompany(newCompanyId);
-             } catch (rollbackError) {
-                console.error('Rollback failed:', rollbackError.message);
-             }
-        }
-
-        if (error.message.includes('foreign key')) {
-            return errorResponse(res, 400, "Invalid Subscription Package ID provided.");
-        }
-        return errorResponse(res, 500, "Failed to create company and assign subscription.");
+    const existingCompany = await getCompanyByEmail(admin_email);
+    if (existingCompany) {
+      return errorResponse(res, 409, "A company with this admin email already exists.");
     }
+
+    const newCompany = await createCompanyBySuperAdmin({
+      company_name,
+      admin_email,
+      admin_name,
+      password,
+      subscription_package_id: parseInt(subscription_package_id),
+      subscription_start_date,
+      subscription_end_date,
+      ...otherData
+    });
+
+    if (!newCompany) {
+      return errorResponse(res, 500, "Failed to create company.");
+    }
+
+    newCompanyId = newCompany.id;
+
+    await Role.createDefaultRoles(newCompany.id);
+    await createDefaultLeadSources(newCompany.id);
+    await createDefaultLeadStatuses(newCompany.id);
+
+    if (send_welcome_email) {
+      const packageData = await getPackageById(parseInt(subscription_package_id));
+      const planName = packageData ? packageData.name : 'Custom Plan';
+      const loginUrl = process.env.APP_LOGIN_URL || 'https://app-login-url.com/login';
+
+      await sendCompanyCreationEmail(
+        admin_email,
+        admin_name,
+        company_name,
+        planName,
+        password,
+        loginUrl
+      );
+    }
+
+    await generateCompanyRegistrationNotification({
+      id: newCompany.id,
+      company_name,
+      admin_email,
+      subscription_package_id
+    });
+
+    sseService.broadcast('sa_company_list_refresh', { action: 'created', companyId: newCompany.id });
+
+    return successResponse(res, "Company created and subscription assigned successfully. Welcome email sent to admin.", {
+      company: {
+        id: newCompany.id,
+        company_name: newCompany.company_name,
+        admin_email: newCompany.admin_email,
+        created_at: newCompany.created_at,
+        subscription_package_id: parseInt(subscription_package_id)
+      }
+    }, 201);
+
+  } catch (error) {
+    if (newCompanyId) {
+      console.error(`Rolling back creation for company ${newCompanyId} due to error:`, error.message);
+      try {
+        await deleteCompany(newCompanyId);
+      } catch (rollbackError) {
+        console.error('Rollback failed:', rollbackError.message);
+      }
+    }
+
+    if (error.message.includes('foreign key')) {
+      return errorResponse(res, 400, "Invalid Subscription Package ID provided.");
+    }
+    return errorResponse(res, 500, "Failed to create company and assign subscription.");
+  }
 };
 
 module.exports = {
