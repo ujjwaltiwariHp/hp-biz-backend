@@ -253,12 +253,71 @@ const updateSubscriptionStatusManual = async (companyId, adminId, action, subscr
 };
 
 const deleteCompany = async (id) => {
+  const client = await pool.connect();
   try {
+    await client.query('BEGIN');
+    const companyId = parseInt(id);
+
+    await client.query('DELETE FROM notifications WHERE company_id = $1', [companyId]);
+    await client.query('DELETE FROM super_admin_notifications WHERE company_id = $1', [companyId]);
+
+    await client.query('DELETE FROM user_activity_logs WHERE company_id = $1', [companyId]);
+    await client.query('DELETE FROM system_logs WHERE company_id = $1', [companyId]);
+
+    await client.query(`
+      DELETE FROM device_tokens
+      WHERE user_id IN (SELECT id FROM staff WHERE company_id = $1)
+      AND user_type = 'staff'
+    `, [companyId]);
+
+    await client.query(`
+      DELETE FROM follow_up_reminders
+      WHERE lead_id IN (SELECT id FROM leads WHERE company_id = $1)
+    `, [companyId]);
+
+    await client.query(`
+      DELETE FROM lead_activities
+      WHERE lead_id IN (SELECT id FROM leads WHERE company_id = $1)
+    `, [companyId]);
+
+    await client.query(`
+      DELETE FROM lead_tag_mappings
+      WHERE lead_id IN (SELECT id FROM leads WHERE company_id = $1)
+    `, [companyId]);
+
+    await client.query('DELETE FROM leads WHERE company_id = $1', [companyId]);
+
+    await client.query('DELETE FROM lead_tags WHERE company_id = $1', [companyId]);
+    await client.query('DELETE FROM lead_statuses WHERE company_id = $1', [companyId]);
+    await client.query('DELETE FROM lead_sources WHERE company_id = $1', [companyId]);
+    await client.query('DELETE FROM lead_field_definitions WHERE company_id = $1', [companyId]);
+
+    await client.query('DELETE FROM lead_distribution_settings WHERE company_id = $1', [companyId]);
+
+    await client.query(`
+      DELETE FROM staff_sessions
+      WHERE staff_id IN (SELECT id FROM staff WHERE company_id = $1)
+    `, [companyId]);
+
+    await client.query('DELETE FROM staff_performance WHERE staff_id IN (SELECT id FROM staff WHERE company_id = $1)', [companyId]);
+
+    await client.query('DELETE FROM staff WHERE company_id = $1', [companyId]);
+
+    await client.query('DELETE FROM payments WHERE company_id = $1', [companyId]);
+    await client.query('DELETE FROM invoices WHERE company_id = $1', [companyId]);
+
+    await client.query('DELETE FROM roles WHERE company_id = $1', [companyId]);
+
     const query = `DELETE FROM companies WHERE id = $1 RETURNING *`;
-    const result = await pool.query(query, [parseInt(id)]);
+    const result = await client.query(query, [companyId]);
+
+    await client.query('COMMIT');
     return result.rows[0];
   } catch (error) {
+    await client.query('ROLLBACK');
     throw error;
+  } finally {
+    client.release();
   }
 };
 
