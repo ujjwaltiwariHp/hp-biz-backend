@@ -39,8 +39,8 @@ const getStaffById = async (req, res) => {
 const createStaff = async (req, res) => {
   try {
     const {
-        first_name, last_name, email, phone, designation, status, role_id,
-        address, nationality, employee_id, alternate_phone, id_proof_type, id_proof_number, profile_picture
+      first_name, last_name, email, phone, designation, status, role_id,
+      address, nationality, employee_id, alternate_phone, id_proof_type, id_proof_number, profile_picture
     } = req.body;
     const company_id = req.company.id;
 
@@ -87,7 +87,8 @@ const createStaff = async (req, res) => {
       alternate_phone: alternate_phone ? alternate_phone.trim() : null,
       id_proof_type: id_proof_type ? id_proof_type.trim() : null,
       id_proof_number: id_proof_number ? id_proof_number.trim() : null,
-      profile_picture: profile_picture || null
+      id_proof_number: id_proof_number ? id_proof_number.trim() : null,
+      profile_picture: (profile_picture && (profile_picture.startsWith('/uploads/') || profile_picture.startsWith('http'))) ? profile_picture : null
     });
 
     const staffDetails = await Staff.getStaffById(result.staff.id, company_id);
@@ -130,7 +131,7 @@ const createStaff = async (req, res) => {
     );
   } catch (err) {
     if (err.message && err.message.includes("employee_id")) {
-        return errorResponse(res, 409, "Employee ID already exists in this company.");
+      return errorResponse(res, 409, "Employee ID already exists in this company.");
     }
     return errorResponse(res, 500, "Failed to create staff or send welcome email. " + err.message);
   }
@@ -191,7 +192,7 @@ const updateStaff = async (req, res) => {
       return errorResponse(res, 403, err.message);
     }
     if (err.message && err.message.includes("employee_id")) {
-        return errorResponse(res, 409, "Employee ID already exists in this company.");
+      return errorResponse(res, 409, "Employee ID already exists in this company.");
     }
     return errorResponse(res, 500, err.message);
   }
@@ -253,7 +254,12 @@ const updateMyProfile = async (req, res) => {
     if (alternate_phone) updateData.alternate_phone = alternate_phone.trim();
     if (id_proof_type) updateData.id_proof_type = id_proof_type.trim();
     if (id_proof_number) updateData.id_proof_number = id_proof_number.trim();
-    if (profile_picture) updateData.profile_picture = profile_picture;
+    if (profile_picture) {
+      // FIX: Ignore local mobile file paths
+      if (profile_picture.startsWith('/uploads/') || profile_picture.startsWith('http')) {
+        updateData.profile_picture = profile_picture;
+      }
+    }
 
     if (email) {
       const trimmedEmail = email.trim().toLowerCase();
@@ -385,7 +391,7 @@ const updateMyPassword = async (req, res) => {
     const staffId = req.staff.id;
 
     if (!new_password || new_password.length < 6) {
-        return errorResponse(res, 400, "Password must be at least 6 characters long");
+      return errorResponse(res, 400, "Password must be at least 6 characters long");
     }
 
     await Staff.updateStaffPassword(staffId, new_password);

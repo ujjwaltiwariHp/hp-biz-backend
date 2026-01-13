@@ -144,31 +144,31 @@ const verifyOTP = async (req, res) => {
     let targetCompanyId = company_id;
 
     if (type === 'staff' && !targetCompanyId) {
-        const result = await pool.query(
-            `SELECT company_id FROM temp_signups
+      const result = await pool.query(
+        `SELECT company_id FROM temp_signups
              WHERE email = $1 AND user_type = 'staff'
              ORDER BY created_at DESC LIMIT 1`,
-            [trimmedEmail]
-        );
+        [trimmedEmail]
+      );
 
-        if (result.rows.length > 0) {
-            targetCompanyId = result.rows[0].company_id;
-        } else {
-            return errorResponse(res, 400, "Company ID is required for staff verification");
-        }
+      if (result.rows.length > 0) {
+        targetCompanyId = result.rows[0].company_id;
+      } else {
+        return errorResponse(res, 400, "Company ID is required for staff verification");
+      }
     }
 
     if (type === 'company' && !targetCompanyId) {
-        const company = await getCompanyByEmail(trimmedEmail);
-        if (company) {
-            targetCompanyId = company.id;
-        } else {
-            targetCompanyId = 0;
-        }
+      const company = await getCompanyByEmail(trimmedEmail);
+      if (company) {
+        targetCompanyId = company.id;
+      } else {
+        targetCompanyId = 0;
+      }
     }
 
     if (targetCompanyId === undefined || targetCompanyId === null) {
-        targetCompanyId = 0;
+      targetCompanyId = 0;
     }
 
     const tempSignup = await getTempSignup(trimmedEmail, targetCompanyId, type);
@@ -188,9 +188,9 @@ const verifyOTP = async (req, res) => {
     await markTempSignupVerified(trimmedEmail, targetCompanyId, type);
 
     return successResponse(res, "OTP verified successfully.", {
-        verified_email: trimmedEmail,
-        company_id: targetCompanyId,
-        user_type: type
+      verified_email: trimmedEmail,
+      company_id: targetCompanyId,
+      user_type: type
     }, 200, req);
 
   } catch (error) {
@@ -452,17 +452,17 @@ const forgotPassword = async (req, res) => {
     }
 
     if (type === 'staff') {
-        const staffExists = await pool.query(
-            "SELECT id FROM staff WHERE email = $1 AND company_id = $2 AND status != 'deleted'",
-            [trimmedEmail, company_id]
-        );
-        if (staffExists.rows.length === 0) return errorResponse(res, 404, "Staff account not found in this company");
+      const staffExists = await pool.query(
+        "SELECT id FROM staff WHERE email = $1 AND company_id = $2 AND status != 'deleted'",
+        [trimmedEmail, company_id]
+      );
+      if (staffExists.rows.length === 0) return errorResponse(res, 404, "Staff account not found in this company");
     } else {
-        const company = await getCompanyByEmail(trimmedEmail);
-        if (!company) return errorResponse(res, 404, "Company account not found");
-        if (company_id && company.id != company_id) {
-             return errorResponse(res, 404, "Company account not found for this specific ID");
-        }
+      const company = await getCompanyByEmail(trimmedEmail);
+      if (!company) return errorResponse(res, 404, "Company account not found");
+      if (company_id && company.id != company_id) {
+        return errorResponse(res, 404, "Company account not found for this specific ID");
+      }
     }
 
     const otp = generateOTP();
@@ -470,8 +470,8 @@ const forgotPassword = async (req, res) => {
 
     let targetCompanyId = company_id;
     if (type === 'company' && !targetCompanyId) {
-        const company = await getCompanyByEmail(trimmedEmail);
-        targetCompanyId = company.id;
+      const company = await getCompanyByEmail(trimmedEmail);
+      targetCompanyId = company.id;
     }
 
     await upsertTempSignup({
@@ -505,19 +505,19 @@ const resetPassword = async (req, res) => {
     let targetCompanyId = company_id;
 
     if (type === 'staff' && !targetCompanyId) {
-         const result = await pool.query(
-            `SELECT company_id FROM temp_signups
+      const result = await pool.query(
+        `SELECT company_id FROM temp_signups
              WHERE email = $1 AND user_type = 'staff' AND is_verified = TRUE
              ORDER BY created_at DESC LIMIT 1`,
-            [trimmedEmail]
-        );
-        if (result.rows.length > 0) targetCompanyId = result.rows[0].company_id;
-        else return errorResponse(res, 400, "Missing Company ID context");
+        [trimmedEmail]
+      );
+      if (result.rows.length > 0) targetCompanyId = result.rows[0].company_id;
+      else return errorResponse(res, 400, "Missing Company ID context");
     }
 
     if (type === 'company' && !targetCompanyId) {
-        const company = await getCompanyByEmail(trimmedEmail);
-        targetCompanyId = company ? company.id : 0;
+      const company = await getCompanyByEmail(trimmedEmail);
+      targetCompanyId = company ? company.id : 0;
     }
 
     if (targetCompanyId === undefined || targetCompanyId === null) targetCompanyId = 0;
@@ -529,11 +529,11 @@ const resetPassword = async (req, res) => {
     const tempSignup = tempSignupRes.rows[0];
 
     if (!tempSignup) {
-        return errorResponse(res, 400, "Session expired. Please request a new OTP.");
+      return errorResponse(res, 400, "Session expired. Please request a new OTP.");
     }
 
     if (tempSignup.is_verified !== true) {
-        return errorResponse(res, 403, "OTP not verified. Please verify OTP first.");
+      return errorResponse(res, 403, "OTP not verified. Please verify OTP first.");
     }
 
     if (type === 'staff') {
@@ -584,9 +584,9 @@ const selectInitialSubscription = async (req, res) => {
       const isStatusInactive = inactiveStatuses.includes(company.subscription_status);
 
       const isExpiredByDate = company.subscription_end_date &&
-                              moment(company.subscription_end_date).isBefore(moment());
+        moment(company.subscription_end_date).isBefore(moment());
       if (!isStatusInactive && !isExpiredByDate) {
-         return errorResponse(res, 400, "An active or pending subscription already exists for this company.");
+        return errorResponse(res, 400, "An active or pending subscription already exists for this company.");
       }
     }
 
@@ -787,7 +787,13 @@ const updateProfile = async (req, res) => {
     }
 
     if (profile_picture !== undefined) {
-      profileData.profile_picture = profile_picture;
+      // FIX: Ignore local mobile file paths or invalid URIs
+      const isValidUrl = typeof profile_picture === 'string' &&
+        (profile_picture.startsWith('/uploads/') || profile_picture.startsWith('http'));
+
+      if (isValidUrl || profile_picture === '' || profile_picture === null) {
+        profileData.profile_picture = profile_picture;
+      }
     }
 
     if (Object.keys(profileData).length === 0) {
@@ -968,7 +974,7 @@ const logout = async (req, res) => {
     const { fcm_token } = req.body;
 
     if (fcm_token) {
-        await deleteDeviceToken(fcm_token);
+      await deleteDeviceToken(fcm_token);
     }
 
     if (token) {
