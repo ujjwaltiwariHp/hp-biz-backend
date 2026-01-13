@@ -201,27 +201,27 @@ const updateSubscriptionStatusManual = async (companyId, adminId, action, subscr
       queryFields.push(`subscription_end_date = NULL`);
 
     } else if (action === 'payment_received') {
-        newStatus = 'payment_received';
-        queryFields.push(`subscription_status = $${paramCount++}`);
-        queryValues.push(newStatus);
+      newStatus = 'payment_received';
+      queryFields.push(`subscription_status = $${paramCount++}`);
+      queryValues.push(newStatus);
     } else if (action === 'pending') {
-        newStatus = 'pending';
+      newStatus = 'pending';
 
-        if (!subscription_package_id || !subscription_start_date || !subscription_end_date) {
-             throw new Error('Missing package ID or dates for pending status update.');
-        }
+      if (!subscription_package_id || !subscription_start_date || !subscription_end_date) {
+        throw new Error('Missing package ID or dates for pending status update.');
+      }
 
-        queryFields.push(`subscription_status = $${paramCount++}`);
-        queryValues.push(newStatus);
+      queryFields.push(`subscription_status = $${paramCount++}`);
+      queryValues.push(newStatus);
 
-        queryFields.push(`subscription_package_id = $${paramCount++}`);
-        queryValues.push(parseInt(subscription_package_id));
+      queryFields.push(`subscription_package_id = $${paramCount++}`);
+      queryValues.push(parseInt(subscription_package_id));
 
-        queryFields.push(`subscription_start_date = $${paramCount++}`);
-        queryValues.push(subscription_start_date);
+      queryFields.push(`subscription_start_date = $${paramCount++}`);
+      queryValues.push(subscription_start_date);
 
-        queryFields.push(`subscription_end_date = $${paramCount++}`);
-        queryValues.push(subscription_end_date);
+      queryFields.push(`subscription_end_date = $${paramCount++}`);
+      queryValues.push(subscription_end_date);
 
     } else {
       throw new Error(`Invalid action: ${action}`);
@@ -375,7 +375,7 @@ const getDashboardStats = async (startDate, endDate) => {
       financials: {
         total_revenue: parseFloat(revenueRes.rows[0].total_revenue).toFixed(2),
         mrr_estimate: parseFloat(mrrRes.rows[0].mrr_estimate).toFixed(2),
-        currency: 'INR'
+        currency: 'USD'
       },
       packages: {
         distribution: packages,
@@ -430,35 +430,35 @@ const getCompanyUsageReport = async (startDate, endDate) => {
 };
 
 const createCompanyBySuperAdmin = async (data) => {
-    const {
-        company_name,
-        admin_email,
-        admin_name,
-        password,
-        subscription_package_id,
-        subscription_start_date,
-        subscription_end_date,
-        is_active = true
-    } = data;
+  const {
+    company_name,
+    admin_email,
+    admin_name,
+    password,
+    subscription_package_id,
+    subscription_start_date,
+    subscription_end_date,
+    is_active = true
+  } = data;
 
-    let unique_company_id = generateUniqueId();
-    let isUnique = false;
+  let unique_company_id = generateUniqueId();
+  let isUnique = false;
 
-    while (!isUnique) {
-        const { rows: existing } = await pool.query(
-            'SELECT id FROM companies WHERE unique_company_id = $1',
-            [unique_company_id]
-        );
-        if (existing.length === 0) {
-            isUnique = true;
-        } else {
-            unique_company_id = generateUniqueId();
-        }
+  while (!isUnique) {
+    const { rows: existing } = await pool.query(
+      'SELECT id FROM companies WHERE unique_company_id = $1',
+      [unique_company_id]
+    );
+    if (existing.length === 0) {
+      isUnique = true;
+    } else {
+      unique_company_id = generateUniqueId();
     }
+  }
 
-    const hashedPassword = await bcrypt.hash(password, 12);
+  const hashedPassword = await bcrypt.hash(password, 12);
 
-    const query = `
+  const query = `
         INSERT INTO companies (
             unique_company_id, company_name, admin_email, password_hash, admin_name,
             phone, address, industry, company_size, subscription_package_id,
@@ -469,14 +469,14 @@ const createCompanyBySuperAdmin = async (data) => {
                   TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as created_at
     `;
 
-    const values = [
-        unique_company_id, company_name, admin_email, hashedPassword, admin_name,
-        data.phone || null, data.address || null, data.industry || null, data.company_size || null,
-        subscription_package_id, subscription_start_date, subscription_end_date, is_active
-    ];
+  const values = [
+    unique_company_id, company_name, admin_email, hashedPassword, admin_name,
+    data.phone || null, data.address || null, data.industry || null, data.company_size || null,
+    subscription_package_id, subscription_start_date, subscription_end_date, is_active
+  ];
 
-    const result = await pool.query(query, values);
-    return result.rows[0];
+  const result = await pool.query(query, values);
+  return result.rows[0];
 };
 
 module.exports = {

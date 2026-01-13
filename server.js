@@ -25,7 +25,8 @@ const superAdminLoggingRoutes = require('./src/routes/super-admin-routes/logging
 const subscriptionManagementRoutes = require('./src/routes/super-admin-routes/subscriptionManagementRoutes');
 const superAdminBillingSettingsRoutes = require('./src/routes/super-admin-routes/billingSettingsRoutes');
 const sseRoutes = require('./src/routes/sseRoutes');
-
+const dashboardRoutes = require('./src/routes/mobileDashboardRoutes');
+const upgradesubscriptionRoutes = require('./src/routes/subscriptionUpgradeRoutes');
 const swaggerDocs = require('./src/config/swagger');
 const { startOtpCleanupJob } = require('./src/jobs/otpCleanup');
 const { startSubscriptionCron } = require('./src/jobs/subscriptionExpiry');
@@ -65,7 +66,7 @@ const corsOptions = {
     if (allowedOrigins.includes(origin) || isVercelPreviewUrl(origin)) {
       callback(null, true);
     } else {
-    callback(new Error(`Origin ${origin} not allowed by CORS`));
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
     }
   },
   credentials: true,
@@ -130,6 +131,8 @@ app.use('/api/v1/notifications', attachTimezone, notificationRoutes);
 app.use('/api/v1/logs', attachTimezone, loggingRoutes);
 app.use('/api/v1/sse', attachTimezone, sseRoutes);
 app.use('/api/v1/lead-fields', attachTimezone, leadFieldRoutes);
+app.use('/api/v1/dashboard', attachTimezone, dashboardRoutes);
+app.use('/api/v1/subscription-upgrade', attachTimezone, upgradesubscriptionRoutes);
 
 app.use('/api/v1/super-admin/auth', attachTimezoneForSuperAdmin, superAdminAuthRoutes);
 app.use('/api/v1/super-admin/companies', attachTimezoneForSuperAdmin, superAdminCompanyRoutes);

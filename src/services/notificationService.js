@@ -14,8 +14,8 @@ const sendPushNotification = async (userIds, payload, userType = 'staff') => {
     const tokens = await getTokensByUserIds(targetIds, userType);
 
     if (tokens.length === 0) {
-        console.log(`No devices found for User IDs: ${targetIds}`);
-        return;
+      console.log(`No devices found for User IDs: ${targetIds}`);
+      return;
     }
 
     console.log(`Attempting to send Push to ${tokens.length} devices...`);
@@ -55,7 +55,7 @@ const sendPushNotification = async (userIds, payload, userType = 'staff') => {
           const errorInfo = resp.error;
           console.log('FCM Send Error:', errorInfo);
           if (errorInfo.code === 'messaging/registration-token-not-registered' ||
-              errorInfo.code === 'messaging/invalid-argument') {
+            errorInfo.code === 'messaging/invalid-argument') {
             failedTokens.push(tokens[idx]);
           }
         }
@@ -112,13 +112,13 @@ const createLeadStatusChangeNotification = async (leadId, oldStatus, newStatus, 
 
       await Promise.all(notifications.map(notification =>
         sendPushNotification(notification.staff_id, {
-            title: notification.title,
-            body: notification.message,
-            data: {
-              leadId: String(leadId),
-              type: 'status_change',
-              companyId: String(companyId)
-            }
+          title: notification.title,
+          body: notification.message,
+          data: {
+            leadId: String(leadId),
+            type: 'status_change',
+            companyId: String(companyId)
+          }
         })
       ));
     }
@@ -353,13 +353,13 @@ const createLeadActivityNotification = async (leadId, activityType, staffId, com
 
       await Promise.all(notifications.map(notification =>
         sendPushNotification(notification.staff_id, companyId, {
-            title: notification.title,
-            body: notification.message,
-            data: {
-                leadId: String(leadId),
-                type: 'lead_activity',
-                companyId: String(companyId)
-            }
+          title: notification.title,
+          body: notification.message,
+          data: {
+            leadId: String(leadId),
+            type: 'lead_activity',
+            companyId: String(companyId)
+          }
         })
       ));
     }
@@ -415,13 +415,13 @@ const createLeadCreationNotification = async (leadId, createdBy, companyId) => {
         });
 
         await sendPushNotification(adminResult.rows[0].id, {
-            title: "New Lead Created",
-            body: `${creatorName} created a new lead: ${lead.first_name} ${lead.last_name}`,
-            data: {
-                leadId: String(leadId),
-                type: 'lead_creation',
-                companyId: String(companyId)
-            }
+          title: "New Lead Created",
+          body: `${creatorName} created a new lead: ${lead.first_name} ${lead.last_name}`,
+          data: {
+            leadId: String(leadId),
+            type: 'lead_creation',
+            companyId: String(companyId)
+          }
         });
       }
     }
@@ -471,13 +471,13 @@ const createLeadUpdateNotification = async (leadId, updatedBy, companyId, update
 
       await Promise.all(notifications.map(notification =>
         sendPushNotification(notification.staff_id, {
-            title: notification.title,
-            body: notification.message,
-            data: {
-                leadId: String(leadId),
-                type: 'lead_update',
-                companyId: String(companyId)
-            }
+          title: notification.title,
+          body: notification.message,
+          data: {
+            leadId: String(leadId),
+            type: 'lead_update',
+            companyId: String(companyId)
+          }
         })
       ));
     }
@@ -668,9 +668,9 @@ const createBulkTransferNotification = async (leadIdsOrCount, assignedTo, assign
           });
         }
       } else {
-         const title = "Leads Received";
-         const message = `You have received ${count} new lead(s) from ${senderName}.`;
-         await sendPushNotification(assignedTo, { title, body: message, data: { type: 'bulk_assignment', companyId: String(companyId) } });
+        const title = "Leads Received";
+        const message = `You have received ${count} new lead(s) from ${senderName}.`;
+        await sendPushNotification(assignedTo, { title, body: message, data: { type: 'bulk_assignment', companyId: String(companyId) } });
       }
     }
 
@@ -679,7 +679,38 @@ const createBulkTransferNotification = async (leadIdsOrCount, assignedTo, assign
   }
 };
 
+
+
+const createUpgradeRequestNotification = async (companyId, companyName, invoiceData, packageName, durationType) => {
+  try {
+    const { id: invoiceId, invoice_number, total_amount, currency } = invoiceData;
+
+    const message = `Upgrade requested by ${companyName} to ${packageName} (${durationType}). Invoice #${invoice_number} generated for ${currency} ${total_amount}. Awaiting Payment.`;
+
+    await createSuperAdminNotification({
+      company_id: companyId,
+      super_admin_id: null,
+      title: "Subscription Upgrade Requested",
+      message: message,
+      notification_type: "upgrade_requested",
+      priority: "high",
+      metadata: {
+        action_required: "verify_payment",
+        company_id: companyId,
+        invoice_id: invoiceId,
+        invoice_number: invoice_number,
+        amount: total_amount,
+        package_name: packageName
+      }
+    });
+
+  } catch (error) {
+    console.error('Error creating upgrade request notification:', error);
+  }
+};
+
 module.exports = {
+  createUpgradeRequestNotification,
   createLeadStatusChangeNotification,
   createLeadAssignmentNotification,
   createBulkAssignmentNotification,
