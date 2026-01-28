@@ -52,6 +52,7 @@ const {
     checkLeadLimit,
     requireFeature
 } = require('../middleware/subscriptionMiddleware');
+const { uploadLeadImages, compressedLeadImages } = require('../middleware/imageUpload');
 
 const router = express.Router();
 
@@ -81,6 +82,8 @@ router.post('/create',
     ...subscriptionChain,
     requirePermission('lead_management', 'create'),
     checkLeadLimit,
+    uploadLeadImages,
+    compressedLeadImages,
     createLead
 );
 
@@ -107,7 +110,7 @@ router.get('/search', ...subscriptionChain, requirePermission('lead_management',
 router.get('/:id/details', ...subscriptionChain, requirePermission('lead_management', 'view'), getLeadDetails);
 router.get('/:id/history', ...subscriptionChain, requirePermission('lead_management', 'view'), getLeadHistory);
 
-router.put('/update/:id', ...subscriptionChain, requirePermission('lead_management', 'update'), updateLead);
+router.put('/update/:id', ...subscriptionChain, requirePermission('lead_management', 'update'), uploadLeadImages, compressedLeadImages, updateLead);
 router.put('/update/status/:id', ...subscriptionChain, requirePermission('lead_management', 'update'), updateLeadStatus);
 router.delete('/delete/:id', ...subscriptionChain, requirePermission('lead_management', 'delete'), logActivity, deleteLead);
 router.get('/:id/assignment-history', ...subscriptionChain, requirePermission('lead_management', 'view'), getLeadAssignmentHistory);
