@@ -129,9 +129,8 @@ const createLead = async (data) => {
     assigned_by_type,
     lead_images,
 
-    latitude,
-    longitude,
-    location_address,
+    location,
+
     ...otherData
   } = data;
 
@@ -141,7 +140,7 @@ const createLead = async (data) => {
     'lead_value', 'currency', 'notes', 'internal_notes', 'priority_level', 'lead_score',
     'best_time_to_call', 'timezone', 'utm_source', 'utm_medium', 'utm_campaign',
     'referral_source', 'created_by', 'created_by_type', 'assigned_by', 'assigned_by_type',
-    'assigned_at', 'next_follow_up', 'lead_data', 'lead_images', 'latitude', 'longitude', 'location_address'
+    'assigned_at', 'next_follow_up', 'lead_data', 'lead_images', 'location'
   ];
 
   const processedData = {
@@ -162,9 +161,10 @@ const createLead = async (data) => {
     lead_score: otherData.lead_score || 0,
     lead_images,
 
-    latitude,
-    longitude,
-    location_address,
+    // latitude,
+    // longitude,
+    // location_address,
+    location,
     ...otherData
   };
 
@@ -172,7 +172,8 @@ const createLead = async (data) => {
   const finalData = {
     ...finalFields,
     lead_data: JSON.stringify(lead_data || {}),
-    lead_images : images ? JSON.stringify(images) : null
+    lead_images : images ? JSON.stringify(images) : null,
+    location : location ? JSON.stringify(location) : null
   };
 
   const columns = [];
@@ -648,7 +649,8 @@ const getLeadByIdWithTags = async (id, companyId) => {
     `SELECT l.id, l.company_id, l.lead_source_id, l.assigned_to, l.status_id,
             l.first_name, l.last_name, l.email, l.phone, l.address, l.remarks,
             l.company_name, l.job_title, l.industry, l.lead_value, l.currency,
-            l.notes, l.internal_notes, l.priority_level, l.lead_score,l.lead_images, l.latitude, l.longitude, l.location_address,
+            l.notes, l.internal_notes, l.priority_level, l.lead_score,l.lead_images, 
+            l.location,
             l.assigned_at, l.assigned_by, l.created_by, l.last_contacted,
             l.next_follow_up, l.best_time_to_call, l.timezone, l.utm_source,
             l.utm_medium, l.utm_campaign, l.referral_source, l.created_at, l.updated_at,l.lead_data,
@@ -683,6 +685,15 @@ const getLeadByIdWithTags = async (id, companyId) => {
     [id, companyId]
   );
  const lead = result.rows[0];
+
+//! parse location
+if(lead && lead.location && typeof lead.location == 'string'){
+  try {
+    lead.location = JSON.parse(lead.location)
+  } catch (error) {
+    lead.location = null    
+  }
+}
 
 if (lead && lead.lead_data) {
   if (typeof lead.lead_data === 'string') {
@@ -1459,9 +1470,7 @@ const validateAndSeparateFields = async (companyId, requestBody) => {
     next_follow_up: true,
     lead_images : true,
 
-    latitude : true,
-    longitude : true,
-    location_address  :true
+    location : true
   };
 
   const definedFields = await getFieldDefinitions(companyId);
