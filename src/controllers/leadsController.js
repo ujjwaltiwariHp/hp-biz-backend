@@ -93,10 +93,7 @@ const createLead = async (req, res) => {
       assigned_by: assigned_by || null,
       assigned_by_type: assigned_by_type || null,
       lead_data: customFields,
-
-      latitude : standardFields.latitude,
-      longitude : standardFields.longitude,
-      location_address : standardFields.location_address,
+      location : standardFields.location  || null,
 
       lead_images : req.body.lead_images || null,
       ...standardFields
