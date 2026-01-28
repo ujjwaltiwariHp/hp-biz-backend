@@ -127,6 +127,11 @@ const createLead = async (data) => {
     created_by_type,
     assigned_by,
     assigned_by_type,
+    lead_images,
+
+    latitude,
+    longitude,
+    location_address,
     ...otherData
   } = data;
 
@@ -136,7 +141,7 @@ const createLead = async (data) => {
     'lead_value', 'currency', 'notes', 'internal_notes', 'priority_level', 'lead_score',
     'best_time_to_call', 'timezone', 'utm_source', 'utm_medium', 'utm_campaign',
     'referral_source', 'created_by', 'created_by_type', 'assigned_by', 'assigned_by_type',
-    'assigned_at', 'next_follow_up', 'lead_data'
+    'assigned_at', 'next_follow_up', 'lead_data', 'lead_images', 'latitude', 'longitude', 'location_address'
   ];
 
   const processedData = {
@@ -155,13 +160,19 @@ const createLead = async (data) => {
     currency: otherData.currency || 'USD',
     priority_level: otherData.priority_level || 1,
     lead_score: otherData.lead_score || 0,
+    lead_images,
+
+    latitude,
+    longitude,
+    location_address,
     ...otherData
   };
 
-  const { lead_data, ...finalFields } = processedData;
+  const { lead_data, lead_images : images, ...finalFields } = processedData;
   const finalData = {
     ...finalFields,
-    lead_data: JSON.stringify(lead_data || {})
+    lead_data: JSON.stringify(lead_data || {}),
+    lead_images : images ? JSON.stringify(images) : null
   };
 
   const columns = [];
@@ -250,7 +261,8 @@ const updateLead = async (id, data, companyId) => {
     "lead_score", "best_time_to_call", "timezone", "utm_source", "utm_medium",
     "utm_campaign", "referral_source", "next_follow_up", "lead_source_id",
     "assigned_by", "assigned_by_type",
-    "lead_data" // ✅ ADDED THIS
+    "lead_data" ,// ✅ ADDED THIS
+    "lead_images"
   ];
 
   const updateFields = [];
@@ -281,6 +293,13 @@ const updateLead = async (id, data, companyId) => {
         }
 
       }
+
+      else if(key == "lead_images"){
+        updateFields.push(`${key} = $${paramCount}`)
+        values.push(JSON.stringify(data[key]))
+        paramCount++
+      }
+
       // ✅ Handle Custom Fields (Stringify JSON)
       else if (key === 'lead_data') {
         updateFields.push(`${key} = $${paramCount}`);
@@ -524,13 +543,22 @@ const deleteLead = async (id, companyId) => {
       "DELETE FROM notifications WHERE related_lead_id = $1 AND company_id = $2",
       [id, companyId]
     );
+
+    //! fetch file before lead delete
+    const files = await client.query(
+      "SELECT lead_images FROM leads where id = $1",
+      [id]
+    )
     const leadResult = await client.query(
       "DELETE FROM leads WHERE id = $1 AND company_id = $2 RETURNING id",
       [id, companyId]
     );
 
     await client.query('COMMIT');
-    return leadResult.rows.length > 0;
+    // return leadResult.rows.length > 0;
+    
+    //!  return files for local deletion
+    return files.rows
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -620,7 +648,7 @@ const getLeadByIdWithTags = async (id, companyId) => {
     `SELECT l.id, l.company_id, l.lead_source_id, l.assigned_to, l.status_id,
             l.first_name, l.last_name, l.email, l.phone, l.address, l.remarks,
             l.company_name, l.job_title, l.industry, l.lead_value, l.currency,
-            l.notes, l.internal_notes, l.priority_level, l.lead_score,
+            l.notes, l.internal_notes, l.priority_level, l.lead_score,l.lead_images, l.latitude, l.longitude, l.location_address,
             l.assigned_at, l.assigned_by, l.created_by, l.last_contacted,
             l.next_follow_up, l.best_time_to_call, l.timezone, l.utm_source,
             l.utm_medium, l.utm_campaign, l.referral_source, l.created_at, l.updated_at,l.lead_data,
@@ -1428,7 +1456,12 @@ const validateAndSeparateFields = async (companyId, requestBody) => {
     timezone: true, utm_source: true, utm_medium: true, utm_campaign: true,
     referral_source: true, address: true, remarks: true,
     lead_source_id: true, assigned_to: true, status_id: true, tag: true,
-    next_follow_up: true
+    next_follow_up: true,
+    lead_images : true,
+
+    latitude : true,
+    longitude : true,
+    location_address  :true
   };
 
   const definedFields = await getFieldDefinitions(companyId);

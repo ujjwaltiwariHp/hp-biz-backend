@@ -55,7 +55,46 @@ const compressProfilePicture = async (req, res, next) => {
   }
 };
 
+//! lead images
+const compressedLeadImages = async (req, res, next) => {
+  if(!req.files || !req.files.length) return next()
+
+    try {
+      const uploadDir = path.join(__dirname, "../../public/uploads/lead_images")
+
+      if(!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive : true})
+      }
+
+      const images = []
+
+      for (const file of req.files) {
+        const filename = `lead-${Date.now()}-${Math.round(Math.random() * 1E9)}.jpeg`
+
+        const filepath = path.join(uploadDir, filename)
+
+        await sharp(file.buffer).
+        resize({width : 1200, withoutEnlargement : true})
+        .toFormat('jpeg')
+        .jpeg({quality : 80})
+        .toFile(filepath)
+
+        images.push(`/uploads/lead_images/${filename}`)
+      }
+
+      req.body.lead_images = images
+
+      next()
+    } catch (error) {
+      console.error("Lead image compressed error ", error )      
+      return errorResponse(res, 500, "Failed to process lead image")
+    }
+}
+
 module.exports = {
   uploadProfilePicture: upload.single('profile_picture'),
-  compressProfilePicture
+  compressProfilePicture,
+
+  uploadLeadImages : upload.array('lead_images', 10),
+  compressedLeadImages
 };

@@ -6,6 +6,28 @@ const NotificationService = require("../services/notificationService");
 const { parseAndConvertToUTC } = require('../utils/timezoneHelper');
 const Staff = require("../models/staffModel");
 const sseService = require('../services/sseService');
+const  baseUrl  = require("../utils/baseUrl");
+const fs = require("fs")
+const path = require("path")
+
+//! delete file from local
+const deleteLocalFile = (filePath) => {
+  if(!filePath) return
+
+  //! handle array input
+  if(Array.isArray(filePath)){
+    for(const p of filePath){
+      deleteLocalFile(p)
+    }
+    return
+  }
+
+  const absolute = path.join(process.cwd(), "public" + filePath)
+
+  if(fs.existsSync(absolute)){
+    fs.unlinkSync(absolute)
+  }
+}
 
 const createLead = async (req, res) => {
   try {
@@ -71,6 +93,12 @@ const createLead = async (req, res) => {
       assigned_by: assigned_by || null,
       assigned_by_type: assigned_by_type || null,
       lead_data: customFields,
+
+      latitude : standardFields.latitude,
+      longitude : standardFields.longitude,
+      location_address : standardFields.location_address,
+
+      lead_images : req.body.lead_images || null,
       ...standardFields
     };
 
@@ -154,6 +182,23 @@ const updateLead = async (req, res) => {
     const currentLead = await Lead.getLeadById(leadId, companyId);
     if (!currentLead) return errorResponse(res, 404, "Lead not found or unauthorized");
 
+    //! if image provided
+    const hasNewImages = Array.isArray(req.body.lead_images)
+
+    let normalizedExistingImages = []
+    let imagesToDelete = []
+
+    if(hasNewImages){
+    const existingImages = req.body.existingImages ? JSON.parse(req.body.existingImages) : []
+
+    //! normalize image path
+    const baseUrls = baseUrl(req)
+     normalizedExistingImages = existingImages.map(url => url.replace(baseUrls, ""))
+
+    const newImages = req.body.lead_images || []
+
+     imagesToDelete = Array.isArray(currentLead.lead_images) ? currentLead.lead_images.filter(img => !normalizedExistingImages.includes(img)) : []
+    }
     // 3. Merge Old and New Custom Data
     let existingLeadData = currentLead.lead_data || {};
     // Ensure it's an object if it came back as a string
@@ -171,6 +216,13 @@ const updateLead = async (req, res) => {
         ...standardFields,
         lead_data: mergedCustomFields
     };
+
+    if(hasNewImages){
+      updateData.lead_images = [
+        ...normalizedExistingImages,
+        ...req.body.lead_images
+      ]
+    }
 
     // Handle Special Fields (Date Parsing)
     const { next_follow_up } = req.body;
@@ -211,6 +263,13 @@ const updateLead = async (req, res) => {
 
     // 5. Perform Update
     const updatedLead = await Lead.updateLead(leadId, updateData, companyId);
+
+    //! remove image from local
+    if(hasNewImages && imagesToDelete.length > 0) {
+    for(const img of imagesToDelete){
+      deleteLocalFile(img)
+    }
+  }
 
     // Handle Tags
     if (req.body.tag && typeof req.body.tag === 'string') {
@@ -462,7 +521,14 @@ const getLeadById = async (req, res) => {
     if (!lead) {
       return errorResponse(res, 404, "Lead not found or unauthorized");
     }
-    return successResponse(res, "Lead details fetched", lead, 200, req);
+
+    const baseUrls = baseUrl(req)
+
+    const formattedLead = {
+      ...lead,
+      lead_images : Array.isArray(lead.lead_images) ? lead.lead_images.map(img => img ? `${baseUrls}${img}` : null) : []
+    }
+    return successResponse(res, "Lead details fetched", formattedLead, 200, req);
   } catch (err) {
     return errorResponse(res, 500, err.message);
   }
@@ -471,10 +537,16 @@ const getLeadById = async (req, res) => {
 const deleteLead = async (req, res) => {
   try {
     const companyId = req.company.id;
-    const deleted = await Lead.deleteLead(req.params.id, companyId);
-    if (!deleted) {
+    const files = await Lead.deleteLead(req.params.id, companyId);
+    if (!files) {
       return errorResponse(res, 404, "Lead not found or unauthorized");
     }
+
+    //! delete image from local
+    for(const file of files){
+      deleteLocalFile(file.lead_images)
+    }
+
     if (req.staff) {
       await NotificationService.createLeadActivityNotification(
         req.params.id,
