@@ -7,27 +7,7 @@ const { parseAndConvertToUTC } = require('../utils/timezoneHelper');
 const Staff = require("../models/staffModel");
 const sseService = require('../services/sseService');
 const  baseUrl  = require("../utils/baseUrl");
-const fs = require("fs")
-const path = require("path")
-
-//! delete file from local
-const deleteLocalFile = (filePath) => {
-  if(!filePath) return
-
-  //! handle array input
-  if(Array.isArray(filePath)){
-    for(const p of filePath){
-      deleteLocalFile(p)
-    }
-    return
-  }
-
-  const absolute = path.join(process.cwd(), "public" + filePath)
-
-  if(fs.existsSync(absolute)){
-    fs.unlinkSync(absolute)
-  }
-}
+const deleteLocalFile = require("../utils/deleteLocalFile");
 
 const createLead = async (req, res) => {
   try {

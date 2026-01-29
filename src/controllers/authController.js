@@ -51,6 +51,8 @@ const {
 const { createNotification } = require('../../src/models/super-admin-models/notificationModel');
 const moment = require('moment');
 const Role = require('../models/roleModel');
+const baseUrl = require('../utils/baseUrl');
+const deleteLocalFile = require('../utils/deleteLocalFile');
 
 const checkEmail = async (req, res) => {
   try {
@@ -245,6 +247,17 @@ const login = async (req, res) => {
     const ip = req.ip || '0.0.0.0';
     const userAgent = req.get('User-Agent');
 
+    //! location during login
+    let loginLocation = req.body.location || null
+
+    if(loginLocation && typeof loginLocation == "string"){
+      try {
+        loginLocation = JSON.parse(loginLocation)
+      } catch (error) {
+        loginLocation = null
+      }
+    }
+
     if (!email || !password) {
       return errorResponse(res, 400, "Email and password are required");
     }
@@ -282,6 +295,7 @@ const login = async (req, res) => {
               unique_company_id: detailedCompany.unique_company_id,
               email_verified: detailedCompany.email_verified,
               created_at: detailedCompany.created_at,
+              login_location : req.body.location,
               subscription_end_date: detailedCompany.subscription_end_date,
               is_active: detailedCompany.is_active,
               profile_picture: detailedCompany.profile_picture,
@@ -320,6 +334,7 @@ const login = async (req, res) => {
               is_first_login: staff.is_first_login,
               designation: staff.designation,
               last_login: staff.last_login,
+              login_location : req.body.location,
               password_status: staff.password_status,
               profile_picture: staff.profile_picture
             }
@@ -347,9 +362,11 @@ const login = async (req, res) => {
     const refreshToken = generateRefreshToken({ ...tokenPayload, version: 1 });
 
     if (type === 'company') {
-      await createCompanySession(dbId, refreshToken, ip, userAgent);
+      const location = await createCompanySession(dbId, refreshToken, ip, userAgent, loginLocation);
+      console.log(location)
     } else {
-      await Staff.createStaffSession(dbId, refreshToken, ip, userAgent);
+      const location = await Staff.createStaffSession(dbId, refreshToken, ip, userAgent, loginLocation);
+      console.log(location)
     }
 
     res.cookie('refreshToken', refreshToken, {
@@ -714,6 +731,8 @@ const updateProfile = async (req, res) => {
       return errorResponse(res, 403, "Only company admin can update company profile");
     }
 
+    const oldProfilePicture = req.company.profile_picture
+    
     const {
       company_name,
       admin_name,
@@ -786,6 +805,7 @@ const updateProfile = async (req, res) => {
       profileData.timezone = timezone;
     }
 
+    let isProfilePictureUpdated = false
     if (profile_picture !== undefined) {
       // FIX: Ignore local mobile file paths or invalid URIs
       const isValidUrl = typeof profile_picture === 'string' &&
@@ -793,6 +813,7 @@ const updateProfile = async (req, res) => {
 
       if (isValidUrl || profile_picture === '' || profile_picture === null) {
         profileData.profile_picture = profile_picture;
+        isProfilePictureUpdated = true
       }
     }
 
@@ -804,6 +825,11 @@ const updateProfile = async (req, res) => {
 
     if (!updatedCompany) {
       return errorResponse(res, 404, "Company not found or unauthorized");
+    }
+
+    //! delete image from local
+    if(isProfilePictureUpdated && oldProfilePicture && oldProfilePicture != profile_picture){
+      deleteLocalFile(oldProfilePicture)
     }
 
     try {
@@ -865,6 +891,8 @@ const getProfile = async (req, res) => {
         ? packageFeatures.filter(f => !f.includes('max_custom_fields'))
         : [];
 
+        const baseUrls = baseUrl(req)
+
       const profileData = {
         company: {
           id: company.id,
@@ -881,7 +909,7 @@ const getProfile = async (req, res) => {
           is_active: company.is_active,
           created_at: company.created_at,
           updated_at: company.updated_at,
-          profile_picture: company.profile_picture,
+          profile_picture: company.profile_picture ? `${baseUrls}${company.profile_picture}` : null,
           timezone: timezone
         },
         subscription: {
@@ -906,6 +934,9 @@ const getProfile = async (req, res) => {
       return successResponse(res, "Profile fetched successfully", profileData, 200, req);
     } else if (req.userType === 'staff') {
       const staff = req.staff;
+
+      const baseUrls = baseUrl(req)
+
       const staffData = {
         staff: {
           id: staff.id,
@@ -919,7 +950,7 @@ const getProfile = async (req, res) => {
           permissions: staff.permissions,
           status: staff.status,
           last_login: staff.last_login,
-          profile_picture: staff.profile_picture
+          profile_picture: staff.profile_picture ? `${baseUrls}${staff.profile_picture}` : null
         }
       };
       return successResponse(res, "Profile fetched successfully", staffData, 200, req);
