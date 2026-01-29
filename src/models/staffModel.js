@@ -161,11 +161,19 @@ const deleteStaff = async (id, companyId) => {
     }
   }
 
+  //! fetch image before delete
+  const file = await pool.query(
+    "SELECT profile_picture FROM staff WHERE id = $1",
+    [id]
+  )
+
   const result = await pool.query(
     "DELETE FROM staff WHERE id=$1 AND company_id=$2 RETURNING id",
     [id, companyId]
   );
-  return result.rows.length > 0;
+  // return result.rows.length > 0;
+  //! return file for local deletion
+  return file.rows
 };
 
 const updateStaffStatus = async (id, status, companyId) => {
@@ -383,12 +391,12 @@ const hasPermission = (userPermissions, permissionKey) => {
   return userPermissions[permissionKey] === true;
 };
 
-const createStaffSession = async (staffId, refreshToken, ip, userAgent) => {
+const createStaffSession = async (staffId, refreshToken, ip, userAgent, location) => {
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
   await pool.query(
-    `INSERT INTO staff_sessions (staff_id, refresh_token, ip_address, user_agent, expires_at)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [staffId, refreshToken, ip, userAgent, expiresAt]
+    `INSERT INTO staff_sessions (staff_id, refresh_token, ip_address, user_agent, expires_at, login_location)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [staffId, refreshToken, ip, userAgent, expiresAt, location ? JSON.stringify(location): null]
   );
 };
 

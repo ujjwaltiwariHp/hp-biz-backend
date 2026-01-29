@@ -4,7 +4,8 @@ const { errorResponse } = require("../utils/errorResponse");
 const { sendStaffWelcomeEmail } = require('../services/emailService');
 const { parseAndConvertToUTC } = require('../utils/timezoneHelper');
 const sseService = require('../services/sseService');
-
+const baseUrl = require("../utils/baseUrl");
+const deleteLocalFile = require("../utils/deleteLocalFile");
 
 const getAllStaff = async (req, res) => {
   try {
@@ -208,11 +209,18 @@ const getMyProfile = async (req, res) => {
     const companyId = req.company.id;
     const staff = await Staff.getStaffById(staffId, companyId);
 
+    const baseUrls = baseUrl(req)
+
+    const formattedStaff = {
+      ...staff,
+      profile_picture : staff.profile_picture ? `${baseUrls}${staff.profile_picture}` : null
+    }
+
     if (!staff) {
       return errorResponse(res, 404, "Profile not found.");
     }
 
-    return successResponse(res, "My profile fetched successfully", staff, 200, req);
+    return successResponse(res, "My profile fetched successfully", formattedStaff, 200, req);
 
   } catch (err) {
     console.error("Get My Profile Error:", err);
@@ -228,6 +236,8 @@ const updateMyProfile = async (req, res) => {
 
     const staffId = req.staff.id;
     const companyId = req.company.id;
+    
+    const oldProfilePicture = req.staff.profile_picture
 
     const {
       first_name,
@@ -254,10 +264,12 @@ const updateMyProfile = async (req, res) => {
     if (alternate_phone) updateData.alternate_phone = alternate_phone.trim();
     if (id_proof_type) updateData.id_proof_type = id_proof_type.trim();
     if (id_proof_number) updateData.id_proof_number = id_proof_number.trim();
-    if (profile_picture) {
-      // FIX: Ignore local mobile file paths
+
+    let isProfilePictureUpdated = false
+    if(profile_picture){
       if (profile_picture.startsWith('/uploads/') || profile_picture.startsWith('http')) {
         updateData.profile_picture = profile_picture;
+        isProfilePictureUpdated = true;
       }
     }
 
@@ -283,6 +295,11 @@ const updateMyProfile = async (req, res) => {
       return errorResponse(res, 500, "Failed to update profile.");
     }
 
+    //! delete old image from local
+    if(isProfilePictureUpdated && oldProfilePicture && oldProfilePicture != profile_picture){
+      deleteLocalFile(oldProfilePicture)
+    }
+
     sseService.publish(`c_${companyId}`, 'staff_list_refresh', { action: 'updated', staffId });
 
     return successResponse(res, "Profile updated successfully", updatedStaff, 200, req);
@@ -296,8 +313,13 @@ const updateMyProfile = async (req, res) => {
 const deleteStaff = async (req, res) => {
   try {
     const companyId = req.company.id;
-    const deleted = await Staff.deleteStaff(req.params.id, companyId);
-    if (!deleted) return errorResponse(res, 404, "Staff not found or unauthorized");
+    const file = await Staff.deleteStaff(req.params.id, companyId);
+    if (!file) return errorResponse(res, 404, "Staff not found or unauthorized");
+
+    //! delete from local
+    for(const f of file){
+      deleteLocalFile(f.profile_picture)
+    }
 
     sseService.publish(`c_${companyId}`, 'staff_list_refresh', { action: 'deleted', staffId: req.params.id });
 

@@ -160,10 +160,6 @@ const createLead = async (data) => {
     priority_level: otherData.priority_level || 1,
     lead_score: otherData.lead_score || 0,
     lead_images,
-
-    // latitude,
-    // longitude,
-    // location_address,
     location,
     ...otherData
   };

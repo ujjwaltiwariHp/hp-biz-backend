@@ -379,12 +379,12 @@ const deleteTempSignup = async (email, company_id = null, user_type = 'company')
 
 // --- SESSION MANAGEMENT ---
 
-const createCompanySession = async (companyId, refreshToken, ip, userAgent) => {
+const createCompanySession = async (companyId, refreshToken, ip, userAgent, location) => {
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
   await pool.query(
-    `INSERT INTO company_sessions (company_id, refresh_token, ip_address, user_agent, expires_at)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [companyId, refreshToken, ip, userAgent, expiresAt]
+    `INSERT INTO company_sessions (company_id, refresh_token, ip_address, user_agent, expires_at, login_location)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [companyId, refreshToken, ip, userAgent, expiresAt, location ? JSON.stringify(location) : null]
   );
 };
 
